@@ -1,0 +1,5 @@
+*.asm
+*.out
+*.obj
+venv/
+__pycache__/
