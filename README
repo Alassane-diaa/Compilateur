@@ -1,0 +1,5 @@
+## Pipeline
+
+python nano.C
+nasm -f elf64 resultat.asm
+gcc -no-pie resultat.o
