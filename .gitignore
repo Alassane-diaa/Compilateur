@@ -1,4 +1,6 @@
 *.asm
+*.o
+*.exe
 *.out
 *.obj
 venv/
