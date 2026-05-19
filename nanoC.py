@@ -1,14 +1,19 @@
+from typing import Literal
+
 import lark
 
 cpt = 0
 
 grammaire = lark.Lark("""
 IDENTIFIER: /[a-zA-Z_][a-zA-Z_0-9]*/
-TYPE: "int"
+CHAR: /'([^"\\\\]|\\\\.)*'/
+TYPE: "int" | "char"
 OPBIN: /[+\\-*\\/<>%]/
 decl: TYPE IDENTIFIER -> declaration
+    | TYPE IDENTIFIER "=" expression ";" -> declaration_assignation
 expression: IDENTIFIER -> variable 
           | SIGNED_NUMBER -> entier
+          | CHAR -> char
           | expression OPBIN expression -> binaire
 commande: IDENTIFIER "=" expression ";" -> assignation
         | TYPE IDENTIFIER "=" expression ";" -> declaration_assignation
@@ -31,6 +36,8 @@ def asm_expression(e):
         return f"mov rax, [{e.children[0].value}]"
     if e.data == "entier":
         return f"mov rax, {e.children[0].value}"
+    if e.data == "char":
+        return f"mov rax, {ord(e.children[0].value[1])}"
     e_left = e.children[0]
     e_op = e.children[1]
     e_right = e.children[2]
@@ -44,43 +51,48 @@ pop rax
 {op2asm[e_op.value]}"""
 
 
-def asm_commande(c) -> str:
+def asm_commande(c) -> tuple[str, Literal['']]:
     global cpt
+    decls = ""
     if c.data == "assignation":
         var = c.children[0]
         exp = c.children[1]
-        return f"{asm_expression(exp)}\nmov [{var.value}], rax"
+        return f"{asm_expression(exp)}\nmov [{var.value}], rax", decls
     elif c.data == "declaration_assignation":
         var = c.children[1]
         exp = c.children[2]
-        return f"{asm_expression(exp)}\nmov [{var.value}], rax"
+        decls += f"\n{var.value} : dq 0"
+        return f"{asm_expression(exp)}\nmov [{var.value}], rax", decls
     elif c.data == "pass":
-        return "nop"
+        return "nop", decls
     elif c.data == "print":
         return f"""{asm_expression(c.children[0])}
 mov rdi, format
 mov rsi, rax
 xor rax, rax
 call printf
-"""
+""", decls
     elif c.data == "while":
         exp = c.children[0]
         body = c.children[1]
         idx = cpt
         cpt += 1
+        body_cmd, body_decls = asm_commande(body)
         return f"""loop{idx}:{asm_expression(exp)}
 cmp rax, 0
 jz end{idx}
-{asm_commande(body)}
+{body_cmd}
 jmp loop{idx}
 end{idx}: nop
-"""
+""", decls + body_decls
     elif c.data == "sequence":
         d = c.children[0]
         tail = c.children[1]
-        return f"{asm_commande(d)}\n {asm_commande(tail)}"
+        d_cmd, d_decls = asm_commande(d)
+        tail_cmd, tail_decls = asm_commande(tail)
+        return f"{d_cmd}\n{tail_cmd}", decls + d_decls + tail_decls
     else:
-        return ""
+        return "", decls
 
 def asm_vars(ast):
     return "\n".join(
@@ -99,7 +111,7 @@ def asm_decls_vars(ast):
 
 
 def pp_expression(ast) -> str :
-    if ast.data in ("variable", "entier"):
+    if ast.data in ("variable", "entier", "char"):
         return ast.children[0].value
     elif ast.data == "binaire":
         eg = pp_expression(ast.children[0])
@@ -146,10 +158,10 @@ def pp_main(ast) -> str:
 def asm_main(ast):
     decls = asm_decls_vars(ast.children[0])
     vs = asm_vars(ast.children[0])
-    cmd = asm_commande(ast.children[1])
+    cmd, decls_body = asm_commande(ast.children[1])
     ret = asm_expression(ast.children[2])
     squelette = open("squelette.asm", "r").read()
-    squelette = squelette.replace("DECL_VARS", decls)
+    squelette = squelette.replace("DECL_VARS", decls + decls_body)
     squelette = squelette.replace("INIT_VARS", vs)
     squelette = squelette.replace("COMMAND", cmd)
     squelette = squelette.replace("RETURN", ret)
