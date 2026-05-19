@@ -5,7 +5,10 @@ OPBIN: /[+\-*\/<>]/
 
 TYPE: "int" | "float"
 
-vars : (IDENTIFIER ",")* IDENTIFIER -> liste_vars
+vars : (TYPE IDENTIFIER ",")* TYPE IDENTIFIER -> liste_vars
+
+decl: TYPE IDENTIFIER ";" -> declaration_vide
+| TYPE IDENTIFIER "=" expression ";" -> declaration_renseignee
 
 expression : IDENTIFIER -> variable
            | SIGNED_NUMBER -> entier
@@ -14,15 +17,20 @@ expression : IDENTIFIER -> variable
            |"(" TYPE ")" expression -> cast
            | expression OPBIN expression -> binaire
 
+
+
 commande : IDENTIFIER "=" expression ";" -> assignation
+| decl -> declaration
 | commande* commande -> sequence
 | "pass" -> pass
 | "print" "(" expression ")" ";" -> print
 | "if" "(" expression ")" "{" commande "}" -> if
 | "while" "(" expression ")" "{" commande "}" -> while
 main: "main" "(" vars ")" "{" commande "return" "(" expression ")" ";" "}"
+
 %import common.WS
 %import common.SIGNED_NUMBER
+%import common.FLOAT
 %ignore WS
 """, start="main")
 
@@ -147,5 +155,6 @@ def asm_main(ast):
 if __name__ == "__main__":
     src = open("source.c").read()
     t = grammaire.parse(src)
+    print(pp_main(t))
     with open("resultat.asm", "w") as f:
         f.write(asm_main(t))
