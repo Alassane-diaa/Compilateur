@@ -2,8 +2,9 @@ import lark
 grammaire = lark.Lark("""
 IDENTIFIER: /[a-zA-Z_][a-zA-Z_0-9]*/
 OPBIN: /[+\-*\/<>]/
+CHAR: /'([^"\\\\]|\\\\.)*'/
 
-TYPE: "int" | "float"
+TYPE: "int" | "float" | "char" | "double"
 
 vars : (TYPE IDENTIFIER ",")* TYPE IDENTIFIER -> liste_vars
 
@@ -14,12 +15,16 @@ expression : IDENTIFIER -> variable
            | SIGNED_NUMBER -> entier
            | /[0-9]+\\.[0-9]*/ -> flottant
            | /[0-9]*\\.[0-9]*/ -> flottant
-           |"(" TYPE ")" expression -> cast
-           | expression OPBIN expression -> binaire
+           | "(" TYPE ")" expression -> cast
+           | "{" (expression ",")* expression "}" -> tableau
+           |  expression OPBIN expression -> binaire
+           |  expression "[" expression "]" -> index
 
-
+lhs: IDENTIFIER -> variable
+    | lhs "[" expression "]" -> index
 
 commande : IDENTIFIER "=" expression ";" -> assignation
+| TYPE lhs "=" expression ";" -> declaration_assignation
 | decl -> declaration
 | commande* commande -> sequence
 | "pass" -> pass
@@ -47,6 +52,12 @@ def pp_expression(ast):
     op = ast.children[1].value
     ed = f"{pp_expression(ast.children[2])}"
     return f"{eg} {op} {ed}"
+    elif ast.data == "tableau":
+        return "{" + ", ".join(pp_expression(e) for e in ast.children) + "}"
+    elif ast.data == "index":
+        return f"{pp_expression(ast.children[0])}[{pp_expression(ast.children[1])}]"
+    else :
+        return ""
 
 def asm_expression(ast):
     if ast.data == "variable":
@@ -153,6 +164,14 @@ def asm_decl_vars(ast):
 
 def pp_vars(ast):
     return ", ".join( (v.value for v in ast.children))
+
+def pp_lhs(ast) -> str:
+    if ast.data == "variable":
+        return ast.children[0].value
+    elif ast.data == "index":
+        return f"{pp_lhs(ast.children[0])}[{pp_expression(ast.children[1])}]"
+    else:
+        return ""
 
 def pp_main(ast):
     vs = pp_vars(ast.children[0])

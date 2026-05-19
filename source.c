@@ -4,6 +4,7 @@ while(x){
     y = y + 1;
 }
 
+int a = 7.08;
 float a = 3.0*7.0;
 a = 7.0/9;
 
