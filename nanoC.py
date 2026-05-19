@@ -16,7 +16,7 @@ commande: IDENTIFIER "=" expression ";" -> assignation
         | "while" "(" expression ")" "{" commande "}" -> while
         | (commande)* commande -> sequence
         | "pass" -> pass
-vars: (IDENTIFIER ",")* IDENTIFIER -> liste_vars
+vars: (TYPE IDENTIFIER ",")* TYPE IDENTIFIER -> liste_vars
 main: "main" "(" vars ")" "{" commande "return" "(" expression ")" ";" "}"       
 %import common.WS
 %import common.SIGNED_NUMBER
@@ -84,13 +84,13 @@ def asm_vars(ast):
         add rbx, {(i+1)*8}
         mov rdi, [rbx]
         call atoi
-        mov [{ast.children[i].value}], rax
+        mov [{ast.children[2*i+1].value}], rax
         """
-        for i in range(len(ast.children)))
+        for i in range(len(ast.children)//2))
 
 def asm_decls_vars(ast):
-    return "\n".join(f"{ast.children[i].value} : dq 0" 
-                     for i in range(len(ast.children)))
+    return "\n".join(f"{ast.children[2*i+1].value} : dq 0" 
+                     for i in range(len(ast.children)//2))
 
 
 def pp_expression(ast) -> str :

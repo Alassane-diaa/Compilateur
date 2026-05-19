@@ -1,4 +1,4 @@
-main(x, y) {
+main(int x, int y) {
 while(x){
     x = x - 1;
     y = y + 1;
