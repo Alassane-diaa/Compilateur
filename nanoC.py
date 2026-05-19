@@ -15,8 +15,12 @@ expression: IDENTIFIER -> variable
           | SIGNED_NUMBER -> entier
           | CHAR -> char
           | expression OPBIN expression -> binaire
-commande: IDENTIFIER "=" expression ";" -> assignation
-        | TYPE IDENTIFIER "=" expression ";" -> declaration_assignation
+          | "{" (expression ",")* expression "}" -> tableau
+          | expression "[" expression "]" -> index
+lhs: IDENTIFIER -> variable
+    | lhs "[" expression "]" -> index
+commande: lhs "=" expression ";" -> assignation
+        | TYPE lhs "=" expression ";" -> declaration_assignation
         | "print" "(" expression ")" ";" -> print
         | "if" "(" expression ")" "{" commande "}" -> if
         | "while" "(" expression ")" "{" commande "}" -> while
@@ -118,18 +122,35 @@ def pp_expression(ast) -> str :
         op = ast.children[1].value
         ed = pp_expression(ast.children[2])
         return  f"{eg} {op} {ed}"
+    elif ast.data == "tableau":
+        return "{" + ", ".join(pp_expression(e) for e in ast.children) + "}"
+    elif ast.data == "index":
+        return f"{pp_expression(ast.children[0])}[{pp_expression(ast.children[1])}]"
     else :
         return ""
     
+def pp_lhs(ast) -> str:
+    if ast.data == "variable":
+        return ast.children[0].value
+    elif ast.data == "index":
+        return f"{pp_lhs(ast.children[0])}[{pp_expression(ast.children[1])}]"
+    else:
+        return ""
+
 def pp_commande(ast) -> str:
     if ast.data == "sequence":
         cg = pp_commande(ast.children[0])
         cd = pp_commande(ast.children[1])
         return f"{cg} \n{cd}"
     elif ast.data == "assignation":
-        eg = ast.children[0].value
+        eg = pp_lhs(ast.children[0])
         ed = pp_expression(ast.children[1])
         return f"{eg} = {ed} ;"
+    elif ast.data == "declaration_assignation":
+        vartype = ast.children[0].value
+        var = pp_lhs(ast.children[1])
+        exp = pp_expression(ast.children[2])
+        return f"{vartype} {var} = {exp} ;"
     elif ast.data == "print":
         return f"print({pp_expression(ast.children[0])})"
     elif ast.data in ("if", "while"):
@@ -172,4 +193,5 @@ if __name__ == "__main__":
     src = open("source.c", "r").read()
     t = grammaire.parse(src)
     with open("resultat.asm", "w") as f:
-        f.write(asm_main(t))
+        # f.write(asm_main(t))
+        f.write(pp_main(t))
