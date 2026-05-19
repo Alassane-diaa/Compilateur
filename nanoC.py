@@ -11,6 +11,7 @@ expression: IDENTIFIER -> variable
           | SIGNED_NUMBER -> entier
           | expression OPBIN expression -> binaire
 commande: IDENTIFIER "=" expression ";" -> assignation
+        | TYPE IDENTIFIER "=" expression ";" -> declaration_assignation
         | "print" "(" expression ")" ";" -> print
         | "if" "(" expression ")" "{" commande "}" -> if
         | "while" "(" expression ")" "{" commande "}" -> while
@@ -48,6 +49,10 @@ def asm_commande(c) -> str:
     if c.data == "assignation":
         var = c.children[0]
         exp = c.children[1]
+        return f"{asm_expression(exp)}\nmov [{var.value}], rax"
+    elif c.data == "declaration_assignation":
+        var = c.children[1]
+        exp = c.children[2]
         return f"{asm_expression(exp)}\nmov [{var.value}], rax"
     elif c.data == "pass":
         return "nop"
