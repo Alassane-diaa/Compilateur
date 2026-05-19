@@ -26,6 +26,7 @@ commande : IDENTIFIER "=" expression ";" -> assignation
 | "print" "(" expression ")" ";" -> print
 | "if" "(" expression ")" "{" commande "}" -> if
 | "while" "(" expression ")" "{" commande "}" -> while
+
 main: "main" "(" vars ")" "{" commande "return" "(" expression ")" ";" "}"
 
 %import common.WS
@@ -40,7 +41,8 @@ def pp_expression(ast):
     if ast.data in ("variable", "entier"):
         return ast.children[0].value
     if ast.data == "flottant":
-        return ast.children[0].value   # juste affiche "3.14"
+        return ast.children[0].value
+    
     eg = f"{pp_expression(ast.children[0])}"
     op = ast.children[1].value
     ed = f"{pp_expression(ast.children[2])}"
@@ -63,10 +65,11 @@ def asm_expression(ast):
 """
 
 def pp_commande(ast):
+    tab = "    "
     if ast.data == "assignation":
         lhs = ast.children[0].value
         rhs = pp_expression(ast.children[1])
-        return f"{lhs} = {rhs};"
+        return f"{tab}{lhs} = {rhs};"
     if ast.data == "pass":
         return "pass"
     if ast.data == "print":
@@ -78,7 +81,22 @@ def pp_commande(ast):
     if ast.data in ("if", "while"):
         cg = pp_expression(ast.children[0])
         cd = pp_commande(ast.children[1])
-        return f"{ast.data}({cg}) {{{cd}}}"
+        return f"{ast.data}({cg}) {{{cd}}}\n"
+    if ast.data == "declaration":
+        return pp_declaration(ast.children[0])
+
+def pp_declaration(ast):
+    tab = "    "
+    if ast.data == "declaration_vide":
+        type_ = ast.children[0].value
+        nom   = ast.children[1].value  
+        return f"{tab}{type_} {nom};\n"
+    if ast.data == "declaration_renseignee":
+        type_ = ast.children[0].value 
+        nom   = ast.children[1].value 
+        val   = pp_expression(ast.children[2])   
+        return f"{tab}{type_} {nom} = {val};\n"
+
 
 def asm_commande(ast):
     if ast.data == "assignation":
@@ -125,6 +143,8 @@ add rdi, {(i+1)*8}
 call atoi
 mov [{ast.children[i].value}], rax
 """ for i in range(len(ast.children)))
+
+
 
 def asm_decl_vars(ast):
     return "\n".join(f"{ast.children[i].value}: dq 0"
