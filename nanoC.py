@@ -10,7 +10,6 @@ CHAR: /'([^"\\\\]|\\\\.)*'/
 TYPE: "int" | "char"
 OPBIN: /[+\\-*\\/<>%]/
 decl: TYPE IDENTIFIER -> declaration
-    | TYPE IDENTIFIER "=" expression ";" -> declaration_assignation
 expression: IDENTIFIER -> variable 
           | SIGNED_NUMBER -> entier
           | CHAR -> char
@@ -54,6 +53,11 @@ mov rbx, rax
 pop rax
 {op2asm[e_op.value]}"""
 
+def asm_lhs(ast) -> str:
+    if ast.data == "variable":
+        return ast.children[0].value
+    else:
+        return ""
 
 def asm_commande(c) -> tuple[str, Literal['']]:
     global cpt
@@ -61,12 +65,12 @@ def asm_commande(c) -> tuple[str, Literal['']]:
     if c.data == "assignation":
         var = c.children[0]
         exp = c.children[1]
-        return f"{asm_expression(exp)}\nmov [{var.value}], rax", decls
+        return f"{asm_expression(exp)}\nmov [{asm_lhs(var)}], rax", decls
     elif c.data == "declaration_assignation":
         var = c.children[1]
         exp = c.children[2]
-        decls += f"\n{var.value} : dq 0"
-        return f"{asm_expression(exp)}\nmov [{var.value}], rax", decls
+        decls += f"\n{asm_lhs(var)} : dq 0"
+        return f"{asm_expression(exp)}\nmov [{asm_lhs(var)}], rax", decls
     elif c.data == "pass":
         return "nop", decls
     elif c.data == "print":
@@ -193,5 +197,5 @@ if __name__ == "__main__":
     src = open("source.c", "r").read()
     t = grammaire.parse(src)
     with open("resultat.asm", "w") as f:
-        # f.write(asm_main(t))
-        f.write(pp_main(t))
+        f.write(asm_main(t))
+        # f.write(pp_main(t))
