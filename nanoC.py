@@ -1,18 +1,22 @@
 from typing import Literal
 
+import ast
 import lark
 
 cpt = 0
+string_literals: dict[str, str] = {}
 
 grammaire = lark.Lark("""
 IDENTIFIER: /[a-zA-Z_][a-zA-Z_0-9]*/
-CHAR: /'([^"\\\\]|\\\\.)*'/
-TYPE: "int" | "char"
+CHAR: /'([^"\\\\]|\\\\.)'/
+STRING: /"([^"\\\\]|\\\\.)*"/
+TYPE: "int" | "char" | "string"
 OPBIN: /[+\\-*\\/<>%]/
 decl: TYPE IDENTIFIER -> declaration
 expression: IDENTIFIER -> variable 
           | SIGNED_NUMBER -> entier
           | CHAR -> char
+          | STRING -> string
           | expression OPBIN expression -> binaire
           | "{" (expression ",")* expression "}" -> tableau
           | expression "[" expression "]" -> index
@@ -34,6 +38,17 @@ main: "main" "(" vars ")" "{" commande "return" "(" expression ")" ";" "}"
 
 op2asm = {"+": "add rax, rbx", "-": "sub rax, rbx"}
 
+
+def register_string_literal(token_value: str) -> str:
+    literal_value = ast.literal_eval(token_value)
+    if literal_value not in string_literals:
+        string_literals[literal_value] = f"str_{len(string_literals)}"
+    return string_literals[literal_value]
+
+
+def escape_nasm_string(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
 def asm_expression(e):
     if e.data == "variable":
         return f"mov rax, [{e.children[0].value}]"
@@ -41,6 +56,9 @@ def asm_expression(e):
         return f"mov rax, {e.children[0].value}"
     if e.data == "char":
         return f"mov rax, {ord(e.children[0].value[1])}"
+    if e.data == "string":
+        label = register_string_literal(e.children[0].value)
+        return f"lea rax, [rel {label}]"
     e_left = e.children[0]
     e_op = e.children[1]
     e_right = e.children[2]
@@ -59,7 +77,7 @@ def asm_lhs(ast) -> str:
     else:
         return ""
 
-def asm_commande(c) -> tuple[str, Literal['']]:
+def asm_commande(c) -> tuple[str, str]:
     global cpt
     decls = ""
     if c.data == "assignation":
@@ -74,8 +92,13 @@ def asm_commande(c) -> tuple[str, Literal['']]:
     elif c.data == "pass":
         return "nop", decls
     elif c.data == "print":
-        return f"""{asm_expression(c.children[0])}
-mov rdi, format
+        expr = c.children[0]
+        print(expr)
+        asm_expr = asm_expression(expr)
+        print(expr.data)
+        _format = "format_str" if expr.data == "string" else "format_int"
+        return f"""{asm_expr}
+mov rdi, {_format}
 mov rsi, rax
 xor rax, rax
 call printf
@@ -119,7 +142,7 @@ def asm_decls_vars(ast):
 
 
 def pp_expression(ast) -> str :
-    if ast.data in ("variable", "entier", "char"):
+    if ast.data in ("variable", "entier", "char", "string"):
         return ast.children[0].value
     elif ast.data == "binaire":
         eg = pp_expression(ast.children[0])
@@ -186,7 +209,12 @@ def asm_main(ast):
     cmd, decls_body = asm_commande(ast.children[1])
     ret = asm_expression(ast.children[2])
     squelette = open("squelette.asm", "r").read()
-    squelette = squelette.replace("DECL_VARS", decls + decls_body)
+    string_decls = "\n".join(
+        f'{label}: db "{escape_nasm_string(value)}", 0'
+        for value, label in string_literals.items()
+    )
+    all_decls = "\n".join(part for part in (decls, decls_body, string_decls) if part)
+    squelette = squelette.replace("DECL_VARS", all_decls)
     squelette = squelette.replace("INIT_VARS", vs)
     squelette = squelette.replace("COMMAND", cmd)
     squelette = squelette.replace("RETURN", ret)

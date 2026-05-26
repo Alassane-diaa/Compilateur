@@ -1,7 +1,8 @@
 extern printf, atoi
 section .data
 argv: dq 0
-format: db "%lld",10, 0
+format_int: db "%lld",10, 0
+format_str: db "%s",10, 0
 DECL_VARS
 global main
 section .text
