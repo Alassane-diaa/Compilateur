@@ -132,11 +132,6 @@ def asm_expression(e):
         return f"""{arg_asm}
     mov rdi, rax
     call strlen"""
-    e_left = e.children[0]
-    e_op = e.children[1]
-    e_right = e.children[2]
-    asm_left = asm_expression(e_left)
-    asm_right = asm_expression(e_right)
     if e.data == "tableau":
         # Ne devrait pas être évalué seul en dehors d'une assignation
         return ""
