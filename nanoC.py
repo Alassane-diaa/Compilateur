@@ -46,6 +46,30 @@ def collect_decl_var_types(vars_ast):
         varname = vars_ast.children[i + 1].value
         var_types[varname] = vartype
 
+
+def expr_type(expr) -> str:
+    if expr.data == "entier":
+        return "int"
+    if expr.data == "char":
+        return "char"
+    if expr.data == "string":
+        return "string"
+    if expr.data == "variable":
+        name = expr.children[0].value
+        if name not in var_types:
+            raise NameError(f"undeclared variable: {name}")
+        return var_types[name]
+    if expr.data == "len_expr":
+        return "int"
+    if expr.data == "binaire":
+        return "int"
+    if expr.data == "index":
+        base_name = _base_name(expr.children[0])
+        if base_name and base_name in var_types:
+            return var_types[base_name]
+        raise NameError(f"undeclared variable: {base_name}")
+    return "int"
+
 def register_string_literal(token_value: str) -> str:
     literal_value = ast.literal_eval(token_value)
     if literal_value not in string_literals:
@@ -62,6 +86,14 @@ def _base_name(ast) -> str:
         return ast.children[0].value
     elif ast.data == "index":
         return _base_name(ast.children[0])
+    return ""
+
+
+def _lhs_name(ast) -> str:
+    if ast.data == "variable":
+        return ast.children[0].value
+    if ast.data == "index":
+        return _base_name(ast)
     return ""
 
 def _asm_assign_tableau(lhs_name: str, elements: list, decl=False) -> tuple[str, str]:
@@ -94,7 +126,7 @@ def asm_expression(e):
         return f"lea rax, [rel {label}]"
     if e.data == "len_expr":
         arg = e.children[0]
-        if var_types[arg.children[0]] not in ["string", "char"]:
+        if expr_type(arg) not in ["string", "char"]:
             raise NotImplementedError("len only avaible for string and char")
         arg_asm = asm_expression(arg)
         return f"""{arg_asm}
@@ -160,11 +192,12 @@ def asm_commande(c) -> tuple[str, str]:
     elif c.data == "declaration_assignation":
         # collect var types in the body
         vartype = c.children[0].value
-        varname = asm_lhs(c.children[1])
+        varname = _lhs_name(c.children[1])
         var_types[varname] = vartype
         # collect declarations in the body to store them in data section
         lhs_node = c.children[1]
         exp = c.children[2]
+        print(var_types)
 
         if exp.data == "tableau":
             lhs_name = _base_name(lhs_node)
@@ -182,7 +215,7 @@ def asm_commande(c) -> tuple[str, str]:
         expr = c.children[0]
         # print(expr)
         asm_expr = asm_expression(expr)
-        _format = "format_str" if var_types[expr.children[0]] == "string" else "format_int"
+        _format = "format_str" if expr_type(expr) == "string" else "format_int"
         return f"""{asm_expr}
 mov rdi, {_format}
 mov rsi, rax
