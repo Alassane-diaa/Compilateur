@@ -1,4 +1,5 @@
 import lark
+
 grammaire = lark.Lark("""
 IDENTIFIER: /[a-zA-Z_][a-zA-Z_0-9]*/
 OPBIN: /[+\-*\/<>]/
@@ -41,50 +42,59 @@ main: "main" "(" vars ")" "{" commande "return" "(" expression ")" ";" "}"
 """, start="main")
 
 compteur = iter(range(1000000000))
+constantes_flottantes = set()
 
 def pp_expression(ast):
-    if ast.data in ("variable", "entier"):
+    if ast.data in ("variable", "entier", "flottant"):
         return ast.children[0].value
-    if ast.data == "flottant":
-        return ast.children[0].value
-    
-    eg = f"{pp_expression(ast.children[0])}"
-    op = ast.children[1].value
-    ed = f"{pp_expression(ast.children[2])}"
-    return f"{eg} {op} {ed}"
+    elif ast.data == "binaire":
+        eg = pp_expression(ast.children[0])
+        op = ast.children[1].value
+        ed = pp_expression(ast.children[2])
+        return f"{eg} {op} {ed}"
     elif ast.data == "tableau":
         return "{" + ", ".join(pp_expression(e) for e in ast.children) + "}"
     elif ast.data == "index":
         return f"{pp_expression(ast.children[0])}[{pp_expression(ast.children[1])}]"
-    else :
-        return ""
+    return ""
 
 def asm_expression(ast):
+    global constantes_flottantes
     if ast.data == "variable":
-        return f"mov rax, [{ast.children[0].value}]\n"
+        return f"movsd xmm0, [{ast.children[0].value}]\n"
     if ast.data == "entier":
+        # On peut charger un entier et le convertir au besoin, ou stocker directement
         return f"mov rax, {ast.children[0].value}\n"
     if ast.data == "flottant":
-        return f"movsd xmm0, [{ast.children[0].value}_cst]\n"
-    opbin = {'+' : 'add', '-' : 'sub', '*' : 'imul', '/': 'idiv'}
-    eg = f"{asm_expression(ast.children[0])}"
-    op = ast.children[1].value
-    ed = f"{asm_expression(ast.children[2])}"
-    return f"""{ed}push rax
-{eg}pop rbx
-{opbin[op]} rax, rbx
+        val = ast.children[0].value
+        constantes_flottantes.add(val)
+        label = "cst_" + val.replace(".", "_")
+        return f"movsd xmm0, [{label}]\n"
+    if ast.data == "binaire":
+        opbin_double = {'+': 'addsd xmm0, xmm1', '-': 'subsd xmm0, xmm1', '*': 'mulsd xmm0, xmm1', '/': 'divsd xmm0, xmm1'}
+        eg = asm_expression(ast.children[0])
+        op = ast.children[1].value
+        ed = asm_expression(ast.children[2])
+        
+        # Sauvegarde de xmm0 (droite) sur la pile, évaluation de gauche, puis calcul
+        return f"""{ed}sub rsp, 8
+movsd [rsp], xmm0
+{eg}movsd xmm1, [rsp]
+add rsp, 8
+{opbin_double[op]}
 """
+    return ""
 
 def pp_commande(ast):
     tab = "    "
     if ast.data == "assignation":
         lhs = ast.children[0].value
         rhs = pp_expression(ast.children[1])
-        return f"{tab}{lhs} = {rhs};"
+        return f"{tab}{lhs} = {rhs};\n"
     if ast.data == "pass":
-        return "pass"
+        return f"{tab}pass;\n"
     if ast.data == "print":
-        return f"print({pp_expression(ast.children[0])});"
+        return f"{tab}print({pp_expression(ast.children[0])});\n"
     if ast.data == "sequence":
         cg = pp_commande(ast.children[0])
         cd = pp_commande(ast.children[1])
@@ -92,9 +102,10 @@ def pp_commande(ast):
     if ast.data in ("if", "while"):
         cg = pp_expression(ast.children[0])
         cd = pp_commande(ast.children[1])
-        return f"{ast.data}({cg}) {{{cd}}}\n"
+        return f"{tab}{ast.data}({cg}) {{\n{cd}{tab}}}\n"
     if ast.data == "declaration":
         return pp_declaration(ast.children[0])
+    return ""
 
 def pp_declaration(ast):
     tab = "    "
@@ -107,20 +118,19 @@ def pp_declaration(ast):
         nom   = ast.children[1].value 
         val   = pp_expression(ast.children[2])   
         return f"{tab}{type_} {nom} = {val};\n"
-
+    return ""
 
 def asm_commande(ast):
     if ast.data == "assignation":
         lhs = ast.children[0].value
         rhs = asm_expression(ast.children[1])
-        return f"{rhs}\nmov [{lhs}], rax\n"
+        return f"{rhs}movsd [{lhs}], xmm0\n"
     if ast.data == "pass":
         return "nop\n"
     if ast.data == "print":
-        return f"""{asm_expression(ast.children[0])}
-mov rdi, format
-mov rsi, rax
-xor rax, rax
+        # printf pour un float (%f) attend sa valeur dans xmm0 et rax = 1 (1 registre xmm utilisé)
+        return f"""{asm_expression(ast.children[0])}mov rdi, format_float
+mov rax, 1
 call printf
 """
     if ast.data == "sequence":
@@ -131,64 +141,87 @@ call printf
         test = asm_expression(ast.children[0])
         cmd = asm_commande(ast.children[1])
         cpt = next(compteur)
-        return f"""debut_{cpt}: {test}cmp rax, 0
-jz fin_{cpt}
+        return f"""debut_{cpt}:
+{test}xorpd xmm1, xmm1
+ucomisd xmm0, xmm1
+jp fin_{cpt}
+je fin_{cpt}
 {cmd}jmp debut_{cpt}
-fin_{cpt}
+fin_{cpt}: nop
 """
     if ast.data == "if":
         test = asm_expression(ast.children[0])
         cmd = asm_commande(ast.children[1])
         cpt = next(compteur)
-        return f"""{test}
-cmp rax, 0
-jz fin_{cpt}
-{cmd}
-fin_{cpt}
+        return f"""{test}xorpd xmm1, xmm1
+ucomisd xmm0, xmm1
+jp fin_{cpt}
+je fin_{cpt}
+{cmd}fin_{cpt}: nop
 """
+    return ""
 
 def asm_vars(ast):
-    return "\n".join(
-f"""mov rdi, [argv]
-add rdi, {(i+1)*8}
-call atoi
-mov [{ast.children[i].value}], rax
-""" for i in range(len(ast.children)))
-
-
+    code = []
+    for i in range(len(ast.children) // 2):
+        nom_var = ast.children[2 * i + 1].value
+        code.append(f"""push rsi
+mov rbx, rsi
+mov rdi, [rbx + {(i+1)*8}]
+call atof
+pop rsi
+movsd [{nom_var}], xmm0""")
+    return "\n".join(code)
 
 def asm_decl_vars(ast):
-    return "\n".join(f"{ast.children[i].value}: dq 0"
-                     for i in range(len(ast.children)))
-
+    return "\n".join(f"{ast.children[2 * i + 1].value}: dq 0.0" for i in range(len(ast.children) // 2))
 
 def pp_vars(ast):
-    return ", ".join( (v.value for v in ast.children))
-
-def pp_lhs(ast) -> str:
-    if ast.data == "variable":
-        return ast.children[0].value
-    elif ast.data == "index":
-        return f"{pp_lhs(ast.children[0])}[{pp_expression(ast.children[1])}]"
-    else:
-        return ""
+    res = []
+    for i in range(len(ast.children) // 2):
+        t = ast.children[2*i].value
+        v = ast.children[2*i+1].value
+        res.append(f"{t} {v}")
+    return ", ".join(res)
 
 def pp_main(ast):
     vs = pp_vars(ast.children[0])
     cmd = pp_commande(ast.children[1])
     ret = pp_expression(ast.children[2])
-    return f"main({vs})\n    {cmd}\n    return ({ret});"
+    return f"main({vs}) {{\n{cmd}    return ({ret});\n}}"
 
 def asm_main(ast):
-    decl = asm_decl_vars(ast.children[0])
-    vs = asm_vars(ast.children[0])
+    global constantes_flottantes
+    constantes_flottantes.clear()
+    
     cmd = asm_commande(ast.children[1])
     ret = asm_expression(ast.children[2])
-    squelette = open("squelette.asm").read()
-    squelette = squelette.replace("DECL_VARS", decl)
-    squelette = squelette.replace("INIT_VARS", vs)
-    squelette = squelette.replace("COMMAND", cmd)
-    squelette = squelette.replace("RETURN", ret)
+    decl = asm_decl_vars(ast.children[0])
+    vs = asm_vars(ast.children[0])
+    
+    # Génération dynamique des constantes flottantes pour la section .data
+    cst_section = "\n".join(f"cst_{val.replace('.', '_')}: dq {val}" for val in constantes_flottantes)
+    
+    squelette = f"""global main
+extern printf
+extern atof
+
+section .data
+format_float: db "%f", 10, 0
+{decl}
+{cst_section}
+
+section .text
+main:
+push rbp
+mov rbp, rsp
+{vs}
+{cmd}
+{ret}
+mov rsp, rbp
+pop rbp
+ret
+"""
     return squelette
 
 if __name__ == "__main__":
