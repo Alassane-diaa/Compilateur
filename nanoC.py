@@ -37,7 +37,13 @@ main: "main" "(" vars ")" "{" commande "return" "(" expression ")" ";" "}"
 """, start="main")
 
 op2asm = {"+": "add rax, rbx", "-": "sub rax, rbx"}
+var_types = {}
 
+def collect_decl_var_types(vars_ast):
+    for i in range(0, len(vars_ast.children), 2):
+        vartype = vars_ast.children[i].value
+        varname = vars_ast.children[i + 1].value
+        var_types[varname] = vartype
 
 def register_string_literal(token_value: str) -> str:
     literal_value = ast.literal_eval(token_value)
@@ -85,6 +91,11 @@ def asm_commande(c) -> tuple[str, str]:
         exp = c.children[1]
         return f"{asm_expression(exp)}\nmov [{asm_lhs(var)}], rax", decls
     elif c.data == "declaration_assignation":
+        # collect var types in the body
+        vartype = c.children[0].value
+        varname = asm_lhs(c.children[1])
+        var_types[varname] = vartype
+        # collect declarations in the body to store them in data section
         var = c.children[1]
         exp = c.children[2]
         decls += f"\n{asm_lhs(var)} : dq 0"
@@ -93,10 +104,9 @@ def asm_commande(c) -> tuple[str, str]:
         return "nop", decls
     elif c.data == "print":
         expr = c.children[0]
-        print(expr)
+        # print(expr)
         asm_expr = asm_expression(expr)
-        print(expr.data)
-        _format = "format_str" if expr.data == "string" else "format_int"
+        _format = "format_str" if var_types[expr.children[0]] == "string" else "format_int"
         return f"""{asm_expr}
 mov rdi, {_format}
 mov rsi, rax
@@ -204,6 +214,7 @@ def pp_main(ast) -> str:
 
 
 def asm_main(ast):
+    collect_decl_var_types(ast.children[0])
     decls = asm_decls_vars(ast.children[0])
     vs = asm_vars(ast.children[0])
     cmd, decls_body = asm_commande(ast.children[1])
@@ -224,6 +235,7 @@ def asm_main(ast):
 if __name__ == "__main__":
     src = open("source.c", "r").read()
     t = grammaire.parse(src)
+    # print(t.pretty())
     with open("resultat.asm", "w") as f:
         f.write(asm_main(t))
         # f.write(pp_main(t))
