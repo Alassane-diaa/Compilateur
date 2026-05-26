@@ -17,6 +17,7 @@ expression: IDENTIFIER -> variable
           | SIGNED_NUMBER -> entier
           | CHAR -> char
           | STRING -> string
+          | "len" "(" expression ")" -> len_expr                      
           | expression OPBIN expression -> binaire
           | "{" (expression ",")* expression "}" -> tableau
           | expression "[" expression "]" -> index
@@ -65,6 +66,14 @@ def asm_expression(e):
     if e.data == "string":
         label = register_string_literal(e.children[0].value)
         return f"lea rax, [rel {label}]"
+    if e.data == "len_expr":
+        arg = e.children[0]
+        if var_types[arg.children[0]] not in ["string", "char"]:
+            raise NotImplementedError("len only avaible for string and char")
+        arg_asm = asm_expression(arg)
+        return f"""{arg_asm}
+    mov rdi, rax
+    call strlen"""
     e_left = e.children[0]
     e_op = e.children[1]
     e_right = e.children[2]
