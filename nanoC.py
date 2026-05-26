@@ -56,6 +56,32 @@ def register_string_literal(token_value: str) -> str:
 def escape_nasm_string(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
 
+def _base_name(ast) -> str:
+    """Remonte jusqu'au nom de la variable de base d'un lhs ou expression."""
+    if ast.data == "variable":
+        return ast.children[0].value
+    elif ast.data == "index":
+        return _base_name(ast.children[0])
+    return ""
+
+def _asm_assign_tableau(lhs_name: str, elements: list, decl=False) -> tuple[str, str]:
+    """
+    Génère le code pour assigner un tableau à lhs_name.
+    """
+    n = len(elements)
+    decls = ""
+    if decl:
+        vals = ", ".join(str(0) for _ in elements)
+        decls += f"\n{lhs_name} : dq {vals}"
+        decls += f"\n{lhs_name}_len : dq {n}"
+
+    lines = []
+    for i, elem in enumerate(elements):
+        asm_elem = asm_expression(elem)
+        lines.append(f"{asm_elem}\nmov [{lhs_name} + {i}*8], rax")
+    lines.append(f"mov qword [{lhs_name}_len], {n}")
+    return "\n".join(lines), decls
+
 def asm_expression(e):
     if e.data == "variable":
         return f"mov rax, [{e.children[0].value}]"
@@ -79,38 +105,79 @@ def asm_expression(e):
     e_right = e.children[2]
     asm_left = asm_expression(e_left)
     asm_right = asm_expression(e_right)
-    return f"""{asm_left}
+    if e.data == "tableau":
+        # Ne devrait pas être évalué seul en dehors d'une assignation
+        return ""
+    if e.data == "index":
+        base = e.children[0]  
+        idx  = e.children[1]  
+        base_name = _base_name(base)
+        asm_idx = asm_expression(idx)
+        return f"""{asm_idx}
+mov rcx, rax
+mov rax, [{base_name} + rcx*8]"""
+    else: # binaire
+        e_left = e.children[0]
+        e_op   = e.children[1]
+        e_right = e.children[2]
+        asm_left  = asm_expression(e_left)
+        asm_right = asm_expression(e_right)
+        return f"""{asm_left}
 push rax
 {asm_right}
 mov rbx, rax
 pop rax
 {op2asm[e_op.value]}"""
 
-def asm_lhs(ast) -> str:
+def asm_lhs(ast) -> tuple[str, str]:
     if ast.data == "variable":
-        return ast.children[0].value
-    else:
-        return ""
+        return "", ast.children[0].value
+    elif ast.data == "index":
+        base = ast.children[0]
+        idx  = ast.children[1]
+        base_name = _base_name(base)
+        asm_idx = asm_expression(idx)
+        pre = f"{asm_idx}\nmov rcx, rax\n"
+        addr = f"{base_name} + rcx*8"
+        return pre, addr
+    return "", ""
 
 def asm_commande(c) -> tuple[str, str]:
     global cpt
     decls = ""
     if c.data == "assignation":
-        var = c.children[0]
-        exp = c.children[1]
-        return f"{asm_expression(exp)}\nmov [{asm_lhs(var)}], rax", decls
+        lhs_node = c.children[0]
+        exp      = c.children[1]
+
+        if exp.data == "tableau":
+            lhs_name = _base_name(lhs_node)
+            code, _ = _asm_assign_tableau(lhs_name, exp.children, decl=False)
+            return code, decls
+
+        pre, addr = asm_lhs(lhs_node)
+        return f"{pre}{asm_expression(exp)}\nmov [{addr}], rax", decls
+
     elif c.data == "declaration_assignation":
         # collect var types in the body
         vartype = c.children[0].value
         varname = asm_lhs(c.children[1])
         var_types[varname] = vartype
         # collect declarations in the body to store them in data section
-        var = c.children[1]
+        lhs_node = c.children[1]
         exp = c.children[2]
-        decls += f"\n{asm_lhs(var)} : dq 0"
-        return f"{asm_expression(exp)}\nmov [{asm_lhs(var)}], rax", decls
+
+        if exp.data == "tableau":
+            lhs_name = _base_name(lhs_node)
+            code, new_decls = _asm_assign_tableau(lhs_name, exp.children, decl=True)
+            return code, new_decls
+
+        pre, addr = asm_lhs(lhs_node)
+        decls += f"\n{addr} : dq 0"
+        return f"{pre}{asm_expression(exp)}\nmov [{addr}], rax", decls
+
     elif c.data == "pass":
         return "nop", decls
+
     elif c.data == "print":
         expr = c.children[0]
         # print(expr)
@@ -122,25 +189,29 @@ mov rsi, rax
 xor rax, rax
 call printf
 """, decls
+
     elif c.data == "while":
-        exp = c.children[0]
+        exp  = c.children[0]
         body = c.children[1]
-        idx = cpt
+        idx  = cpt
         cpt += 1
         body_cmd, body_decls = asm_commande(body)
-        return f"""loop{idx}:{asm_expression(exp)}
+        return f"""loop{idx}:
+{asm_expression(exp)}
 cmp rax, 0
 jz end{idx}
 {body_cmd}
 jmp loop{idx}
 end{idx}: nop
 """, decls + body_decls
+
     elif c.data == "sequence":
-        d = c.children[0]
+        d    = c.children[0]
         tail = c.children[1]
-        d_cmd, d_decls = asm_commande(d)
+        d_cmd,    d_decls    = asm_commande(d)
         tail_cmd, tail_decls = asm_commande(tail)
         return f"{d_cmd}\n{tail_cmd}", decls + d_decls + tail_decls
+
     else:
         return "", decls
 
