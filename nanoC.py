@@ -17,13 +17,14 @@ expression: IDENTIFIER -> variable
           | SIGNED_NUMBER -> entier
           | CHAR -> char
           | STRING -> string
-          | "len" "(" expression ")" -> len_expr                      
+          | "len" "(" expression ")" -> len_expr  
           | expression OPBIN expression -> binaire
           | "{" (expression ",")* expression "}" -> tableau
           | expression "[" expression "]" -> index
 lhs: IDENTIFIER -> variable
     | lhs "[" expression "]" -> index
 commande: lhs "=" expression ";" -> assignation
+        | TYPE IDENTIFIER ";"-> declaration
         | TYPE lhs "=" expression ";" -> declaration_assignation
         | "print" "(" expression ")" ";" -> print
         | "if" "(" expression ")" "{" commande "}" -> if

@@ -1,9 +1,12 @@
 main(int x, int y) {
     int c = 1 + 2;
+    int p;
     char a = 'a';
     char b = 'b';
     string s = "coucou";
     string s1 = "coucou2";
+    string s3;
+    s3 = s1+s;
     string s2 = s1 + s;
     print(s2);
     print(s);
