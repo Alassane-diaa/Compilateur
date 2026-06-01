@@ -1,7 +1,11 @@
 main(int x, int y) {
     int c = 1 + 2;
     char a = 'a';
+    char b = 'b';
     string s = "coucou";
+    string s1 = "coucou2";
+    string s2 = s1 + s;
+    print(s3);
     print(s);
     while(x){
     x = x - 1;
