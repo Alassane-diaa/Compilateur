@@ -12,16 +12,19 @@ main(int x, int y) {
     string s2 = s1 + s;
     print(s2);
     print(s);
-    while(x){
-    x = x - 1;
-    y = y + 1;
-}
     int[] tableau = {1, 2, 3, 4, 5};
     tableau[2] = 13;
     x = tableau[2];
     print(x);
     int z = len(tableau);
     print(z);
+    int[] tableau2 = {{1, 2}, {3, 4}, {5, 6}};
+    int[] extrait = tableau2[1];
+    int size = len(tableau2[0]);
+    print(size);
+    print(len(extrait));
     y = tableau[x+1];
+    print(tableau2[1][0]);
+    print(tableau2[1][1]);
     return (y);
 }

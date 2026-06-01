@@ -48,8 +48,6 @@ def _is_array_type(vartype: str) -> bool:
 
 
 def _decls_for_var(varname: str, vartype: str) -> str:
-    if _is_array_type(vartype):
-        return f"\n{varname} : dq 0\n{varname}_len : dq 0"
     return f"\n{varname} : dq 0"
 
 def collect_decl_var_types(vars_ast):
@@ -108,25 +106,37 @@ def _lhs_name(ast) -> str:
         return _base_name(ast)
     return ""
 
+def _asm_build_tableau(elements: list) -> str:
+    """Construit un tableau heap avec un en-tête de longueur.
+
+    Le registre rax contient le pointeur du bloc alloué à la fin.
+    """
+    n = len(elements)
+    size = (n + 1) * 8
+    lines = [
+        f"mov rdi, {size}",
+        "call malloc",
+        "mov rbx, rax",
+        f"mov qword [rbx], {n}",
+    ]
+    for i, elem in enumerate(elements):
+        lines.append("push rbx")
+        lines.append(asm_expression(elem))
+        lines.append("pop rbx")
+        lines.append(f"mov [rbx + {(i + 1) * 8}], rax")
+    lines.append("mov rax, rbx")
+    return "\n".join(lines)
+
+
 def _asm_assign_tableau(lhs_name: str, elements: list, decl=False) -> tuple[str, str]:
     """
     Génère le code pour assigner un tableau à lhs_name.
     """
-    n = len(elements)
-    size = n * 8
     decls = ""
     if decl:
         decls += _decls_for_var(lhs_name, "int[]")
-
-    lines = []
-    lines.append(f"mov rdi, {size}")
-    lines.append("call malloc")
-    lines.append(f"mov [{lhs_name}], rax")
-    for i, elem in enumerate(elements):
-        asm_elem = asm_expression(elem)
-        lines.append(f"{asm_elem}\nmov rdx, [{lhs_name}]\nmov [rdx + {i}*8], rax")
-    lines.append(f"mov qword [{lhs_name}_len], {n}")
-    return "\n".join(lines), decls
+    code = _asm_build_tableau(elements)
+    return f"{code}\nmov [{lhs_name}], rax", decls
 
 def asm_expression(e):
     if e.data == "variable":
@@ -140,32 +150,30 @@ def asm_expression(e):
         return f"lea rax, [rel {label}]"
     if e.data == "len_expr":
         arg = e.children[0]
-        # pour les tableaux
-        if expr_type(arg) in ["int[]", "char[]", "string[]"]:
-            base_name = _base_name(arg)
-            if not base_name or base_name not in var_types:
-                raise NameError(f"undeclared variable: {base_name}")
-            return f"mov rax, [{base_name}_len]"
-
-        elif expr_type(arg) in ["string", "char"]:
+        arg_type = expr_type(arg)
+        if arg_type in ["string", "char"]:
             arg_asm = asm_expression(arg)
             return f"""{arg_asm}
         mov rdi, rax
         call strlen"""
+        if arg_type in ["int[]", "char[]", "string[]"]:
+            arg_asm = asm_expression(arg)
+            return f"""{arg_asm}
+mov rax, [rax]"""
         else:
             raise NotImplementedError("len only avaible for strings, chars and arrays")
     if e.data == "tableau":
-        # Ne devrait pas être évalué seul en dehors d'une assignation
-        return ""
+        return _asm_build_tableau(e.children)
     if e.data == "index":
         base = e.children[0]  
         idx  = e.children[1]  
-        base_name = _base_name(base)
         asm_idx = asm_expression(idx)
         return f"""{asm_idx}
-mov rcx, rax
-mov rdx, [{base_name}]
-mov rax, [rdx + rcx*8]"""
+push rax
+{asm_expression(base)}
+mov rdx, rax
+pop rcx
+mov rax, [rdx + 8 + rcx*8]"""
     else: # binaire
         e_left = e.children[0]
         e_op   = e.children[1]
@@ -191,10 +199,9 @@ def asm_lhs(ast) -> tuple[str, str]:
     elif ast.data == "index":
         base = ast.children[0]
         idx  = ast.children[1]
-        base_name = _base_name(base)
         asm_idx = asm_expression(idx)
-        pre = f"{asm_idx}\nmov rcx, rax\nmov rdx, [{base_name}]\n"
-        addr = f"rdx + rcx*8"
+        pre = f"{asm_idx}\npush rax\n{asm_expression(base)}\nmov rdx, rax\npop rcx\n"
+        addr = f"rdx + 8 + rcx*8"
         return pre, addr
     return "", ""
 
