@@ -180,6 +180,8 @@ def asm_lhs(ast) -> tuple[str, str]:
 def asm_commande(c) -> tuple[str, str]:
     global cpt
     decls = ""
+    if c.data == "declaration":
+        decls += f"\n{c.children[1].value} dq 0"
     if c.data == "assignation":
         lhs_node = c.children[0]
         exp      = c.children[1]

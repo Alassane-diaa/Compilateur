@@ -6,6 +6,8 @@ main(int x, int y) {
     string s = "coucou";
     string s1 = "coucou2";
     string s3;
+    p = 3;
+    s = "HELLO";
     s3 = s1+s;
     string s2 = s1 + s;
     print(s2);
