@@ -1,4 +1,4 @@
-extern printf, atoi, strlen
+extern printf, atoi, strlen, malloc
 section .data
 argv: dq 0
 format_int: db "%lld",10, 0

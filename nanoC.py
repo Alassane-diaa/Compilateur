@@ -42,6 +42,16 @@ op2asm = {"+": "add rax, rbx", "-": "sub rax, rbx"}
 string_id_to_value = {}
 var_types = {}
 
+
+def _is_array_type(vartype: str) -> bool:
+    return vartype in ("int[]", "char[]", "string[]")
+
+
+def _decls_for_var(varname: str, vartype: str) -> str:
+    if _is_array_type(vartype):
+        return f"\n{varname} : dq 0\n{varname}_len : dq 0"
+    return f"\n{varname} : dq 0"
+
 def collect_decl_var_types(vars_ast):
     for i in range(0, len(vars_ast.children), 2):
         vartype = vars_ast.children[i].value
@@ -103,16 +113,18 @@ def _asm_assign_tableau(lhs_name: str, elements: list, decl=False) -> tuple[str,
     Génère le code pour assigner un tableau à lhs_name.
     """
     n = len(elements)
+    size = n * 8
     decls = ""
     if decl:
-        vals = ", ".join(str(0) for _ in elements)
-        decls += f"\n{lhs_name} : dq {vals}"
-        decls += f"\n{lhs_name}_len : dq {n}"
+        decls += _decls_for_var(lhs_name, "int[]")
 
     lines = []
+    lines.append(f"mov rdi, {size}")
+    lines.append("call malloc")
+    lines.append(f"mov [{lhs_name}], rax")
     for i, elem in enumerate(elements):
         asm_elem = asm_expression(elem)
-        lines.append(f"{asm_elem}\nmov [{lhs_name} + {i}*8], rax")
+        lines.append(f"{asm_elem}\nmov rdx, [{lhs_name}]\nmov [rdx + {i}*8], rax")
     lines.append(f"mov qword [{lhs_name}_len], {n}")
     return "\n".join(lines), decls
 
@@ -152,7 +164,8 @@ def asm_expression(e):
         asm_idx = asm_expression(idx)
         return f"""{asm_idx}
 mov rcx, rax
-mov rax, [{base_name} + rcx*8]"""
+mov rdx, [{base_name}]
+mov rax, [rdx + rcx*8]"""
     else: # binaire
         e_left = e.children[0]
         e_op   = e.children[1]
@@ -180,8 +193,8 @@ def asm_lhs(ast) -> tuple[str, str]:
         idx  = ast.children[1]
         base_name = _base_name(base)
         asm_idx = asm_expression(idx)
-        pre = f"{asm_idx}\nmov rcx, rax\n"
-        addr = f"{base_name} + rcx*8"
+        pre = f"{asm_idx}\nmov rcx, rax\nmov rdx, [{base_name}]\n"
+        addr = f"rdx + rcx*8"
         return pre, addr
     return "", ""
 
@@ -189,7 +202,8 @@ def asm_commande(c) -> tuple[str, str]:
     global cpt
     decls = ""
     if c.data == "declaration":
-        decls += f"\n{c.children[1].value} dq 0"
+        vartype = c.children[0].value
+        decls += _decls_for_var(c.children[1].value, vartype)
     if c.data == "assignation":
         lhs_node = c.children[0]
         exp      = c.children[1]
@@ -246,7 +260,7 @@ def asm_commande(c) -> tuple[str, str]:
             return code, new_decls
 
         pre, addr = asm_lhs(lhs_node)
-        decls += f"\n{addr} : dq 0"
+        decls += _decls_for_var(addr, vartype)
         return f"{pre}{asm_expression(exp)}\nmov [{addr}], rax", decls
 
     elif c.data == "pass":
