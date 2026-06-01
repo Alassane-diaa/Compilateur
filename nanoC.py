@@ -38,6 +38,7 @@ main: "main" "(" vars ")" "{" commande "return" "(" expression ")" ";" "}"
 """, start="main")
 
 op2asm = {"+": "add rax, rbx", "-": "sub rax, rbx"}
+string_id_to_value = {}
 var_types = {}
 
 def collect_decl_var_types(vars_ast):
@@ -157,6 +158,12 @@ mov rax, [{base_name} + rcx*8]"""
         e_right = e.children[2]
         asm_left  = asm_expression(e_left)
         asm_right = asm_expression(e_right)
+        if e_left.data == "variable" and e_right.data == "variable":
+            cond_string = var_types[e_left.children[0].value] == "string" and var_types[e_right.children[0].value] == "string" and e_op.value == "+"
+            cond_char = var_types[e_left.children[0].value] == "string" and var_types[e_right.children[0].value] == "string" and e_op.value == "+"
+            if cond_string or cond_char:
+                label = register_string_literal(repr(string_id_to_value[e_left.children[0].value] + string_id_to_value[e_right.children[0].value]))
+            return f"lea rax, [rel {label}]"
         return f"""{asm_left}
 push rax
 {asm_right}
@@ -184,6 +191,21 @@ def asm_commande(c) -> tuple[str, str]:
         lhs_node = c.children[0]
         exp      = c.children[1]
 
+        lhs_name = _lhs_name(lhs_node)
+        if lhs_name:
+            if var_types.get(lhs_name) != "string":
+                string_id_to_value.pop(lhs_name, None)
+            elif exp.data == "string":
+                string_id_to_value[lhs_name] = ast.literal_eval(exp.children[0].value)
+            elif exp.data == "variable":
+                src_name = exp.children[0].value
+                if src_name in string_id_to_value:
+                    string_id_to_value[lhs_name] = string_id_to_value[src_name]
+                else:
+                    string_id_to_value.pop(lhs_name, None)
+            else:
+                string_id_to_value.pop(lhs_name, None)
+
         if exp.data == "tableau":
             lhs_name = _base_name(lhs_node)
             code, _ = _asm_assign_tableau(lhs_name, exp.children, decl=False)
@@ -200,7 +222,20 @@ def asm_commande(c) -> tuple[str, str]:
         # collect declarations in the body to store them in data section
         lhs_node = c.children[1]
         exp = c.children[2]
-        print(var_types)
+
+        if varname:
+            if vartype != "string":
+                string_id_to_value.pop(varname, None)
+            elif exp.data == "string":
+                string_id_to_value[varname] = ast.literal_eval(exp.children[0].value)
+            elif exp.data == "variable":
+                src_name = exp.children[0].value
+                if src_name in string_id_to_value:
+                    string_id_to_value[varname] = string_id_to_value[src_name]
+                else:
+                    string_id_to_value.pop(varname, None)
+            else:
+                string_id_to_value.pop(varname, None)
 
         if exp.data == "tableau":
             lhs_name = _base_name(lhs_node)
@@ -216,9 +251,13 @@ def asm_commande(c) -> tuple[str, str]:
 
     elif c.data == "print":
         expr = c.children[0]
-        # print(expr)
         asm_expr = asm_expression(expr)
-        _format = "format_str" if expr_type(expr) == "string" else "format_int"
+        if expr_type(expr) == "string":
+            _format = "format_str"
+        elif expr_type(expr) == "char":
+            _format = "format_char"
+        else:
+            _format = "format_int"
         return f"""{asm_expr}
 mov rdi, {_format}
 mov rsi, rax
