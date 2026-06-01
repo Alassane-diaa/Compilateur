@@ -148,18 +148,12 @@ mov rax, [{base_name} + rcx*8]"""
         e_left = e.children[0]
         e_op   = e.children[1]
         e_right = e.children[2]
-        # print(e_left)
         asm_left  = asm_expression(e_left)
         asm_right = asm_expression(e_right)
         if e_left.data == "variable" and e_right.data == "variable":
-            # print(e_left)
             cond_string = var_types[e_left.children[0].value] == "string" and var_types[e_right.children[0].value] == "string" and e_op.value == "+"
             cond_char = var_types[e_left.children[0].value] == "string" and var_types[e_right.children[0].value] == "string" and e_op.value == "+"
             if cond_string or cond_char:
-                # pass
-                print(string_id_to_value)
-                print(e_left.children[0])
-                print(e_right.children[0])
                 label = register_string_literal(repr(string_id_to_value[e_left.children[0].value] + string_id_to_value[e_right.children[0].value]))
             return f"lea rax, [rel {label}]"
         return f"""{asm_left}
@@ -217,11 +211,9 @@ def asm_commande(c) -> tuple[str, str]:
         vartype = c.children[0].value
         varname = _lhs_name(c.children[1])
         var_types[varname] = vartype
-        # print(c.children[2])
         # collect declarations in the body to store them in data section
         lhs_node = c.children[1]
         exp = c.children[2]
-        # print(var_types)
 
         if varname:
             if vartype != "string":
@@ -251,7 +243,6 @@ def asm_commande(c) -> tuple[str, str]:
 
     elif c.data == "print":
         expr = c.children[0]
-        # print(expr)
         asm_expr = asm_expression(expr)
         if expr_type(expr) == "string":
             _format = "format_str"

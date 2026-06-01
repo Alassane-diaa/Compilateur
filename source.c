@@ -5,7 +5,7 @@ main(int x, int y) {
     string s = "coucou";
     string s1 = "coucou2";
     string s2 = s1 + s;
-    print(s3);
+    print(s2);
     print(s);
     while(x){
     x = x - 1;
