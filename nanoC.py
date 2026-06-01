@@ -10,7 +10,7 @@ grammaire = lark.Lark("""
 IDENTIFIER: /[a-zA-Z_][a-zA-Z_0-9]*/
 CHAR: /'([^"\\\\]|\\\\.)'/
 STRING: /"([^"\\\\]|\\\\.)*"/
-TYPE: "int" | "char" | "string"
+TYPE: "int" | "char" | "string" | "int[]" | "char[]" | "string[]"
 OPBIN: /[+\\-*\\/<>%]/
 decl: TYPE IDENTIFIER -> declaration
 expression: IDENTIFIER -> variable 
@@ -128,12 +128,20 @@ def asm_expression(e):
         return f"lea rax, [rel {label}]"
     if e.data == "len_expr":
         arg = e.children[0]
-        if expr_type(arg) not in ["string", "char"]:
-            raise NotImplementedError("len only avaible for string and char")
-        arg_asm = asm_expression(arg)
-        return f"""{arg_asm}
-    mov rdi, rax
-    call strlen"""
+        # pour les tableaux
+        if expr_type(arg) in ["int[]", "char[]", "string[]"]:
+            base_name = _base_name(arg)
+            if not base_name or base_name not in var_types:
+                raise NameError(f"undeclared variable: {base_name}")
+            return f"mov rax, [{base_name}_len]"
+
+        elif expr_type(arg) in ["string", "char"]:
+            arg_asm = asm_expression(arg)
+            return f"""{arg_asm}
+        mov rdi, rax
+        call strlen"""
+        else:
+            raise NotImplementedError("len only avaible for strings, chars and arrays")
     if e.data == "tableau":
         # Ne devrait pas être évalué seul en dehors d'une assignation
         return ""
