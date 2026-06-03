@@ -1,14 +1,20 @@
-main(int x, int y) {
+main(int argc, char* argv) {
     int c = 1 + 2;
+    int h = len(argv);
+    print(h);
     int p;
+    int x = 1;
+    int y = 1;
     char a = 'a';
     char b = 'b';
-    string s = "coucou";
+    string s = argv[h-1];
     string s1 = "coucou2";
     string s3;
+    char f = charAt(s1, 0);
+    print(f);
     p = 3;
-    s = "HELLO";
-    s3 = s1+s1;
+    s = s + "HELLO";
+    s3 = s1+"coucou";
     string s2 = s1 + s;
     print(s2);
     print(s3);
@@ -23,7 +29,7 @@ main(int x, int y) {
     int size = len(tableau2[0]);
     print(size);
     print(len(extrait));
-    y = tableau[x+1];
+    y = tableau[1];
     print(tableau2[1][0]);
     print(tableau2[1][1]);
     return (y);

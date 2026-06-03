@@ -3,5 +3,13 @@
 python nanoC.py  
 nasm -f elf64 resultat.asm  
 gcc -no-pie resultat.o
-./a.out 3 5
+./a.out "hello"
 ```
+
+Notes:
+- main is fixed to `main(int argc, char* argv)`.
+- `argc` and `argv` are stored directly from the C ABI (no length prefix for `argv`).
+- `argv[i]` reads the raw C pointer array; `len(argv)` returns `argc`.
+- Arrays still use the length-prefixed layout internally; index typing is permissive (index keeps base array type, like before).
+- String concatenation supports runtime values using `strlen`, `malloc`, `strcpy`, and `strcat`.
+- `charAt(s, i)` returns a `char`. Assembly: evaluate `i` into `rcx`, `s` into `rdx`, then `movzx eax, byte [rdx + rcx]`.

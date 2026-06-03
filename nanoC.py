@@ -17,6 +17,7 @@ expression: IDENTIFIER -> variable
           | SIGNED_NUMBER -> entier
           | CHAR -> char
           | STRING -> string
+          | "charAt" "(" expression "," expression ")" -> char_at
           | "len" "(" expression ")" -> len_expr  
           | expression OPBIN expression -> binaire
           | "{" (expression ",")* expression "}" -> tableau
@@ -31,8 +32,7 @@ commande: lhs "=" expression ";" -> assignation
         | "while" "(" expression ")" "{" commande "}" -> while
         | (commande)* commande -> sequence
         | "pass" -> pass
-vars: (TYPE IDENTIFIER ",")* TYPE IDENTIFIER -> liste_vars
-main: "main" "(" vars ")" "{" commande "return" "(" expression ")" ";" "}"       
+main: "main" "(" "int" "argc" "," "char*" "argv" ")" "{" commande "return" "(" expression ")" ";" "}"       
 %import common.WS
 %import common.SIGNED_NUMBER
 %ignore WS
@@ -42,6 +42,24 @@ op2asm = {"+": "add rax, rbx", "-": "sub rax, rbx"}
 string_id_to_value = {}
 var_types = {}
 
+
+def _eval_const_string(expr):
+    if expr.data == "string":
+        return ast.literal_eval(expr.children[0].value)
+    if expr.data == "char":
+        return ast.literal_eval(expr.children[0].value)
+    if expr.data == "variable":
+        return string_id_to_value.get(expr.children[0].value)
+    if expr.data == "binaire":
+        op = expr.children[1].value
+        if op != "+":
+            return None
+        left = _eval_const_string(expr.children[0])
+        right = _eval_const_string(expr.children[2])
+        if left is None or right is None:
+            return None
+        return left + right
+    return None
 
 def _is_array_type(vartype: str) -> bool:
     return vartype in ("int[]", "char[]", "string[]")
@@ -58,7 +76,7 @@ def collect_decl_var_types(vars_ast):
 
 
 
-def expr_type2(expr) -> str:
+def expr_type(expr) -> str:
     binaire_type = {
         "+": {"int_int": "int", "string_string": "string", "char_char": "char", "int_char": "int", "char_int": "int", "char_string": "string", "string_char": "string"},
         "*": {"int_int": "int"}
@@ -69,6 +87,10 @@ def expr_type2(expr) -> str:
         return "char"
     if expr.data == "string":
         return "string"
+    if expr.data == "char_at":
+        return "char"
+    if expr.data == "char_at":
+        return "char"
     if expr.data == "variable":
         name = expr.children[0].value
         if name not in var_types:
@@ -78,38 +100,18 @@ def expr_type2(expr) -> str:
         return "int"
     if expr.data == "binaire":
         e_left = expr.children[0]
-        e_op   = expr.children[1]
+        e_op   = expr.children[1].value
         e_right = expr.children[2]
-        asm_left  = asm_expression(e_left)
-        asm_right = asm_expression(e_right)
-        if e_left.data == "variable" and e_right.data == "variable":
-            return binaire_type[e_op][var_types[e_left.children[0].value]+"_"+var_types[e_right.children[0].value]]
+        left_type = expr_type(e_left)
+        right_type = expr_type(e_right)
+        key = f"{left_type}_{right_type}"
+        if e_op in binaire_type and key in binaire_type[e_op]:
+            return binaire_type[e_op][key]
         return "int"
     if expr.data == "index":
         base_name = _base_name(expr.children[0])
-        if base_name and base_name in var_types:
-            return var_types[base_name]
-        raise NameError(f"undeclared variable: {base_name}")
-    return "int"
-
-def expr_type(expr) -> str:
-    if expr.data == "entier":
-        return "int"
-    if expr.data == "char":
-        return "char"
-    if expr.data == "string":
-        return "string"
-    if expr.data == "variable":
-        name = expr.children[0].value
-        if name not in var_types:
-            raise NameError(f"undeclared variable: {name}")
-        return var_types[name]
-    if expr.data == "len_expr":
-        return "int"
-    if expr.data == "binaire":
-        return "int"
-    if expr.data == "index":
-        base_name = _base_name(expr.children[0])
+        if base_name and _is_argv_base(base_name):
+            return "string"
         if base_name and base_name in var_types:
             return var_types[base_name]
         raise NameError(f"undeclared variable: {base_name}")
@@ -140,6 +142,10 @@ def _lhs_name(ast) -> str:
     if ast.data == "index":
         return _base_name(ast)
     return ""
+
+
+def _is_argv_base(base_name: str) -> bool:
+    return base_name == "argv"
 
 def _asm_build_tableau(elements: list) -> str:
     """Construit un tableau heap avec un en-tête de longueur.
@@ -173,6 +179,29 @@ def _asm_assign_tableau(lhs_name: str, elements: list, decl=False) -> tuple[str,
     code = _asm_build_tableau(elements)
     return f"{code}\nmov [{lhs_name}], rax", decls
 
+
+def _asm_concat_strings(asm_left: str, asm_right: str) -> str:
+    return f"""{asm_left}
+push rax
+{asm_right}
+push rax
+mov rdi, [rsp+8]
+call strlen
+mov rcx, rax
+mov rdi, [rsp]
+call strlen
+add rax, rcx
+add rax, 1
+mov rdi, rax
+call malloc
+mov rdi, rax
+mov rsi, [rsp+8]
+call strcpy
+mov rdi, rax
+mov rsi, [rsp]
+call strcat
+add rsp, 16"""
+
 def asm_expression(e):
     if e.data == "variable":
         return f"mov rax, [{e.children[0].value}]"
@@ -183,8 +212,21 @@ def asm_expression(e):
     if e.data == "string":
         label = register_string_literal(e.children[0].value)
         return f"lea rax, [rel {label}]"
+    if e.data == "char_at":
+        str_expr = e.children[0]
+        idx_expr = e.children[1]
+        asm_idx = asm_expression(idx_expr)
+        asm_str = asm_expression(str_expr)
+        return f"""{asm_idx}
+push rax
+{asm_str}
+mov rdx, rax
+pop rcx
+movzx eax, byte [rdx + rcx]"""
     if e.data == "len_expr":
         arg = e.children[0]
+        if arg.data == "variable" and arg.children[0].value == "argv":
+            return "mov rax, [argc]"
         arg_type = expr_type(arg)
         if arg_type in ["string", "char"]:
             arg_asm = asm_expression(arg)
@@ -203,6 +245,14 @@ mov rax, [rax]"""
         base = e.children[0]  
         idx  = e.children[1]  
         asm_idx = asm_expression(idx)
+        base_name = _base_name(base)
+        if base_name and _is_argv_base(base_name):
+            return f"""{asm_idx}
+push rax
+{asm_expression(base)}
+mov rdx, rax
+pop rcx
+mov rax, [rdx + rcx*8]"""
         return f"""{asm_idx}
 push rax
 {asm_expression(base)}
@@ -215,10 +265,13 @@ mov rax, [rdx + 8 + rcx*8]"""
         e_right = e.children[2]
         asm_left  = asm_expression(e_left)
         asm_right = asm_expression(e_right)
-        binaire_type = expr_type2(e)
+        binaire_type = expr_type(e)
         print(binaire_type)
         if binaire_type == "string":
-            label = register_string_literal(repr(string_id_to_value[e_left.children[0].value] + string_id_to_value[e_right.children[0].value]))
+            const_value = _eval_const_string(e)
+            if const_value is None:
+                return _asm_concat_strings(asm_left, asm_right)
+            label = register_string_literal(repr(const_value))
             return f"lea rax, [rel {label}]"
         elif binaire_type == "int":
             return f"""{asm_left}
@@ -235,6 +288,11 @@ def asm_lhs(ast) -> tuple[str, str]:
         base = ast.children[0]
         idx  = ast.children[1]
         asm_idx = asm_expression(idx)
+        base_name = _base_name(base)
+        if base_name and _is_argv_base(base_name):
+            pre = f"{asm_idx}\npush rax\n{asm_expression(base)}\nmov rdx, rax\npop rcx\n"
+            addr = "rdx + rcx*8"
+            return pre, addr
         pre = f"{asm_idx}\npush rax\n{asm_expression(base)}\nmov rdx, rax\npop rcx\n"
         addr = f"rdx + 8 + rcx*8"
         return pre, addr
@@ -257,16 +315,12 @@ def asm_commande(c) -> tuple[str, str]:
         if lhs_name:
             if var_types.get(lhs_name) != "string":
                 string_id_to_value.pop(lhs_name, None)
-            elif exp.data == "string":
-                string_id_to_value[lhs_name] = ast.literal_eval(exp.children[0].value)
-            elif exp.data == "variable":
-                src_name = exp.children[0].value
-                if src_name in string_id_to_value:
-                    string_id_to_value[lhs_name] = string_id_to_value[src_name]
-                else:
-                    string_id_to_value.pop(lhs_name, None)
             else:
-                string_id_to_value.pop(lhs_name, None)
+                const_value = _eval_const_string(exp)
+                if const_value is None:
+                    string_id_to_value.pop(lhs_name, None)
+                else:
+                    string_id_to_value[lhs_name] = const_value
 
         if exp.data == "tableau":
             lhs_name = _base_name(lhs_node)
@@ -288,16 +342,12 @@ def asm_commande(c) -> tuple[str, str]:
         if varname:
             if vartype != "string":
                 string_id_to_value.pop(varname, None)
-            elif exp.data == "string":
-                string_id_to_value[varname] = ast.literal_eval(exp.children[0].value)
-            elif exp.data == "variable":
-                src_name = exp.children[0].value
-                if src_name in string_id_to_value:
-                    string_id_to_value[varname] = string_id_to_value[src_name]
-                else:
-                    string_id_to_value.pop(varname, None)
             else:
-                string_id_to_value.pop(varname, None)
+                const_value = _eval_const_string(exp)
+                if const_value is None:
+                    string_id_to_value.pop(varname, None)
+                else:
+                    string_id_to_value[varname] = const_value
 
         if exp.data == "tableau":
             lhs_name = _base_name(lhs_node)
@@ -314,7 +364,7 @@ def asm_commande(c) -> tuple[str, str]:
     elif c.data == "print":
         expr = c.children[0]
         asm_expr = asm_expression(expr)
-        if expr_type2(expr) == "string":
+        if expr_type(expr) == "string":
             _format = "format_str"
         elif expr_type(expr) == "char":
             _format = "format_char"
@@ -352,20 +402,9 @@ end{idx}: nop
     else:
         return "", decls
 
-def asm_vars(ast):
-    return "\n".join(
-        f"""
-        mov rbx, [argv]
-        add rbx, {(i+1)*8}
-        mov rdi, [rbx]
-        call atoi
-        mov [{ast.children[2*i+1].value}], rax
-        """
-        for i in range(len(ast.children)//2))
-
-def asm_decls_vars(ast):
-    return "\n".join(f"{ast.children[2*i+1].value} : dq 0" 
-                     for i in range(len(ast.children)//2))
+def asm_init_main() -> str:
+    return """mov [argc], rdi
+mov [argv], rsi"""
 
 
 def pp_expression(ast) -> str :
@@ -424,18 +463,18 @@ def pp_vars(ast) -> str:
     return args
 
 def pp_main(ast) -> str:
-    args = pp_vars(ast.children[0])
-    cmd = pp_commande(ast.children[1])
-    ret = pp_expression(ast.children[2])
-    return f"main({args}) {{ \n{cmd} \nreturn {ret} \n}}"
+    cmd = pp_commande(ast.children[0])
+    ret = pp_expression(ast.children[1])
+    return f"main(int argc, char* argv) {{ \n{cmd} \nreturn {ret} \n}}"
 
 
 def asm_main(ast):
-    collect_decl_var_types(ast.children[0])
-    decls = asm_decls_vars(ast.children[0])
-    vs = asm_vars(ast.children[0])
-    cmd, decls_body = asm_commande(ast.children[1])
-    ret = asm_expression(ast.children[2])
+    var_types["argc"] = "int"
+    var_types["argv"] = "string*"
+    decls = "\n".join((_decls_for_var("argc", "int"), _decls_for_var("argv", "string*")))
+    vs = asm_init_main()
+    cmd, decls_body = asm_commande(ast.children[0])
+    ret = asm_expression(ast.children[1])
     squelette = open("squelette.asm", "r").read()
     string_decls = "\n".join(
         f'{label}: db "{escape_nasm_string(value)}", 0'
