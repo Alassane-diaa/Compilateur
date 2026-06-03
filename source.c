@@ -8,10 +8,10 @@ main(int x, int y) {
     string s3;
     p = 3;
     s = "HELLO";
-    s3 = s1+s;
+    s3 = s1+s1;
     string s2 = s1 + s;
     print(s2);
-    print(s);
+    print(s3);
     int[] tableau = {1, 2, 3, 4, 5};
     tableau[2] = 13;
     x = tableau[2];

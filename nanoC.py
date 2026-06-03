@@ -57,6 +57,41 @@ def collect_decl_var_types(vars_ast):
         var_types[varname] = vartype
 
 
+
+def expr_type2(expr) -> str:
+    binaire_type = {
+        "+": {"int_int": "int", "string_string": "string", "char_char": "char", "int_char": "int", "char_int": "int", "char_string": "string", "string_char": "string"},
+        "*": {"int_int": "int"}
+        }
+    if expr.data == "entier":
+        return "int"
+    if expr.data == "char":
+        return "char"
+    if expr.data == "string":
+        return "string"
+    if expr.data == "variable":
+        name = expr.children[0].value
+        if name not in var_types:
+            raise NameError(f"undeclared variable: {name}")
+        return var_types[name]
+    if expr.data == "len_expr":
+        return "int"
+    if expr.data == "binaire":
+        e_left = expr.children[0]
+        e_op   = expr.children[1]
+        e_right = expr.children[2]
+        asm_left  = asm_expression(e_left)
+        asm_right = asm_expression(e_right)
+        if e_left.data == "variable" and e_right.data == "variable":
+            return binaire_type[e_op][var_types[e_left.children[0].value]+"_"+var_types[e_right.children[0].value]]
+        return "int"
+    if expr.data == "index":
+        base_name = _base_name(expr.children[0])
+        if base_name and base_name in var_types:
+            return var_types[base_name]
+        raise NameError(f"undeclared variable: {base_name}")
+    return "int"
+
 def expr_type(expr) -> str:
     if expr.data == "entier":
         return "int"
@@ -180,13 +215,13 @@ mov rax, [rdx + 8 + rcx*8]"""
         e_right = e.children[2]
         asm_left  = asm_expression(e_left)
         asm_right = asm_expression(e_right)
-        if e_left.data == "variable" and e_right.data == "variable":
-            cond_string = var_types[e_left.children[0].value] == "string" and var_types[e_right.children[0].value] == "string" and e_op.value == "+"
-            cond_char = var_types[e_left.children[0].value] == "string" and var_types[e_right.children[0].value] == "string" and e_op.value == "+"
-            if cond_string or cond_char:
-                label = register_string_literal(repr(string_id_to_value[e_left.children[0].value] + string_id_to_value[e_right.children[0].value]))
+        binaire_type = expr_type2(e)
+        print(binaire_type)
+        if binaire_type == "string":
+            label = register_string_literal(repr(string_id_to_value[e_left.children[0].value] + string_id_to_value[e_right.children[0].value]))
             return f"lea rax, [rel {label}]"
-        return f"""{asm_left}
+        elif binaire_type == "int":
+            return f"""{asm_left}
 push rax
 {asm_right}
 mov rbx, rax
@@ -210,7 +245,10 @@ def asm_commande(c) -> tuple[str, str]:
     decls = ""
     if c.data == "declaration":
         vartype = c.children[0].value
-        decls += _decls_for_var(c.children[1].value, vartype)
+        varname = c.children[1].value
+        var_types[varname] = vartype
+        string_id_to_value.pop(varname, None)
+        decls += _decls_for_var(varname, vartype)
     if c.data == "assignation":
         lhs_node = c.children[0]
         exp      = c.children[1]
@@ -276,7 +314,7 @@ def asm_commande(c) -> tuple[str, str]:
     elif c.data == "print":
         expr = c.children[0]
         asm_expr = asm_expression(expr)
-        if expr_type(expr) == "string":
+        if expr_type2(expr) == "string":
             _format = "format_str"
         elif expr_type(expr) == "char":
             _format = "format_char"
