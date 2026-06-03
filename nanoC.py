@@ -17,6 +17,7 @@ expression: IDENTIFIER -> variable
           | SIGNED_NUMBER -> entier
           | CHAR -> char
           | STRING -> string
+          | "charAt" "(" expression "," expression ")" -> char_at
           | "len" "(" expression ")" -> len_expr  
           | expression OPBIN expression -> binaire
           | "{" (expression ",")* expression "}" -> tableau
@@ -75,7 +76,7 @@ def collect_decl_var_types(vars_ast):
 
 
 
-def expr_type2(expr) -> str:
+def expr_type(expr) -> str:
     binaire_type = {
         "+": {"int_int": "int", "string_string": "string", "char_char": "char", "int_char": "int", "char_int": "int", "char_string": "string", "string_char": "string"},
         "*": {"int_int": "int"}
@@ -86,6 +87,10 @@ def expr_type2(expr) -> str:
         return "char"
     if expr.data == "string":
         return "string"
+    if expr.data == "char_at":
+        return "char"
+    if expr.data == "char_at":
+        return "char"
     if expr.data == "variable":
         name = expr.children[0].value
         if name not in var_types:
@@ -97,8 +102,8 @@ def expr_type2(expr) -> str:
         e_left = expr.children[0]
         e_op   = expr.children[1].value
         e_right = expr.children[2]
-        left_type = expr_type2(e_left)
-        right_type = expr_type2(e_right)
+        left_type = expr_type(e_left)
+        right_type = expr_type(e_right)
         key = f"{left_type}_{right_type}"
         if e_op in binaire_type and key in binaire_type[e_op]:
             return binaire_type[e_op][key]
@@ -108,38 +113,7 @@ def expr_type2(expr) -> str:
         if base_name and _is_argv_base(base_name):
             return "string"
         if base_name and base_name in var_types:
-            base_type = var_types[base_name]
-            if base_type.endswith("[]"):
-                return base_type[:-2]
-            return base_type
-        raise NameError(f"undeclared variable: {base_name}")
-    return "int"
-
-def expr_type(expr) -> str:
-    if expr.data == "entier":
-        return "int"
-    if expr.data == "char":
-        return "char"
-    if expr.data == "string":
-        return "string"
-    if expr.data == "variable":
-        name = expr.children[0].value
-        if name not in var_types:
-            raise NameError(f"undeclared variable: {name}")
-        return var_types[name]
-    if expr.data == "len_expr":
-        return "int"
-    if expr.data == "binaire":
-        return expr_type2(expr)
-    if expr.data == "index":
-        base_name = _base_name(expr.children[0])
-        if base_name and _is_argv_base(base_name):
-            return "string"
-        if base_name and base_name in var_types:
-            base_type = var_types[base_name]
-            if base_type.endswith("[]"):
-                return base_type[:-2]
-            return base_type
+            return var_types[base_name]
         raise NameError(f"undeclared variable: {base_name}")
     return "int"
 
@@ -238,8 +212,21 @@ def asm_expression(e):
     if e.data == "string":
         label = register_string_literal(e.children[0].value)
         return f"lea rax, [rel {label}]"
+    if e.data == "char_at":
+        str_expr = e.children[0]
+        idx_expr = e.children[1]
+        asm_idx = asm_expression(idx_expr)
+        asm_str = asm_expression(str_expr)
+        return f"""{asm_idx}
+push rax
+{asm_str}
+mov rdx, rax
+pop rcx
+movzx eax, byte [rdx + rcx]"""
     if e.data == "len_expr":
         arg = e.children[0]
+        if arg.data == "variable" and arg.children[0].value == "argv":
+            return "mov rax, [argc]"
         arg_type = expr_type(arg)
         if arg_type in ["string", "char"]:
             arg_asm = asm_expression(arg)
@@ -278,7 +265,7 @@ mov rax, [rdx + 8 + rcx*8]"""
         e_right = e.children[2]
         asm_left  = asm_expression(e_left)
         asm_right = asm_expression(e_right)
-        binaire_type = expr_type2(e)
+        binaire_type = expr_type(e)
         print(binaire_type)
         if binaire_type == "string":
             const_value = _eval_const_string(e)
@@ -377,7 +364,7 @@ def asm_commande(c) -> tuple[str, str]:
     elif c.data == "print":
         expr = c.children[0]
         asm_expr = asm_expression(expr)
-        if expr_type2(expr) == "string":
+        if expr_type(expr) == "string":
             _format = "format_str"
         elif expr_type(expr) == "char":
             _format = "format_char"

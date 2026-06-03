@@ -1,13 +1,17 @@
 main(int argc, char* argv) {
     int c = 1 + 2;
+    int h = len(argv);
+    print(h);
     int p;
     int x = 1;
     int y = 1;
     char a = 'a';
     char b = 'b';
-    string s = argv[1];
+    string s = argv[h-1];
     string s1 = "coucou2";
     string s3;
+    char f = charAt(s1, 0);
+    print(f);
     p = 3;
     s = s + "HELLO";
     s3 = s1+"coucou";
