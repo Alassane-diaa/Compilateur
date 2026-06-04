@@ -6,15 +6,18 @@ import lark
 cpt = 0
 string_literals: dict[str, str] = {}
 
+# add .2 to add priority (so that bool or int is not considered as an identifier)
 grammaire = lark.Lark("""
 IDENTIFIER: /[a-zA-Z_][a-zA-Z_0-9]*/
 CHAR: /'([^"\\\\]|\\\\.)'/
 STRING: /"([^"\\\\]|\\\\.)*"/
-TYPE: "int" | "char" | "string" | "int[]" | "char[]" | "string[]"
-OPBIN: /[+\\-*\\/<>%]/
+BOOL.2: "true" | "false"
+TYPE.2: "int" | "char" | "string" | "bool" | "int[]" | "char[]" | "string[]"
+OPBIN: /[+\\-*\\/<>%]/ | "=="
 decl: TYPE IDENTIFIER -> declaration
 expression: IDENTIFIER -> variable 
           | SIGNED_NUMBER -> entier
+          | BOOL -> bool
           | CHAR -> char
           | STRING -> string
           | "charAt" "(" expression "," expression ")" -> char_at
@@ -79,12 +82,15 @@ def collect_decl_var_types(vars_ast):
 def expr_type(expr) -> str:
     binaire_type = {
         "+": {"int_int": "int", "string_string": "string", "char_char": "char", "int_char": "int", "char_int": "int", "char_string": "string", "string_char": "string"},
+        "==": {"bool_bool": "bool"},
         "*": {"int_int": "int"}
         }
     if expr.data == "entier":
         return "int"
     if expr.data == "char":
         return "char"
+    if expr.data == "bool":
+        return "bool"
     if expr.data == "string":
         return "string"
     if expr.data == "char_at":
@@ -209,6 +215,8 @@ def asm_expression(e):
         return f"mov rax, {e.children[0].value}"
     if e.data == "char":
         return f"mov rax, {ord(e.children[0].value[1])}"
+    if e.data == "bool":
+        return f"mov rax, {"1" if e.children[0].value=="true" else "0"}"
     if e.data == "string":
         label = register_string_literal(e.children[0].value)
         return f"lea rax, [rel {label}]"
@@ -223,6 +231,7 @@ push rax
 mov rdx, rax
 pop rcx
 movzx eax, byte [rdx + rcx]"""
+    
     if e.data == "len_expr":
         arg = e.children[0]
         if arg.data == "variable" and arg.children[0].value == "argv":
@@ -259,6 +268,7 @@ push rax
 mov rdx, rax
 pop rcx
 mov rax, [rdx + 8 + rcx*8]"""
+    
     else: # binaire
         e_left = e.children[0]
         e_op   = e.children[1]
@@ -266,13 +276,14 @@ mov rax, [rdx + 8 + rcx*8]"""
         asm_left  = asm_expression(e_left)
         asm_right = asm_expression(e_right)
         binaire_type = expr_type(e)
-        print(binaire_type)
         if binaire_type == "string":
             const_value = _eval_const_string(e)
             if const_value is None:
                 return _asm_concat_strings(asm_left, asm_right)
             label = register_string_literal(repr(const_value))
             return f"lea rax, [rel {label}]"
+        elif binaire_type == "bool":
+            print("OPBIN BOOL DETECTED")
         elif binaire_type == "int":
             return f"""{asm_left}
 push rax

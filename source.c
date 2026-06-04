@@ -3,6 +3,10 @@ main(int argc, char* argv) {
     int h = len(argv);
     print(h);
     int p;
+    bool hp1 = false;
+    bool hp2 = false;
+    bool hp3 = hp1 == hp2;
+    print(hp1);
     int x = 1;
     int y = 1;
     char a = 'a';
