@@ -13,7 +13,7 @@ CHAR: /'([^"\\\\]|\\\\.)'/
 STRING: /"([^"\\\\]|\\\\.)*"/
 BOOL.2: "true" | "false"
 TYPE.2: "int" | "char" | "string" | "bool" | "int[]" | "char[]" | "string[]"
-OPBIN: /[+\\-*\\/<>%]/ | "=="
+OPBIN: /[+\\-*\\/<>%]/ | "==" | "<" | ">" | "<=" | ">="
 decl: TYPE IDENTIFIER -> declaration
 expression: IDENTIFIER -> variable 
           | SIGNED_NUMBER -> entier
@@ -41,7 +41,8 @@ main: "main" "(" "int" "argc" "," "char*" "argv" ")" "{" commande "return" "(" e
 %ignore WS
 """, start="main")
 
-op2asm = {"+": "add rax, rbx", "-": "sub rax, rbx"}
+op2asm = {"+": "add rax, rbx", "-": "sub rax, rbx", 
+          "<": "setl", ">": "setg", "<=": "setle", ">=": "setge", "==": "sete"}
 string_id_to_value = {}
 var_types = {}
 
@@ -82,7 +83,11 @@ def collect_decl_var_types(vars_ast):
 def expr_type(expr) -> str:
     binaire_type = {
         "+": {"int_int": "int", "string_string": "string", "char_char": "char", "int_char": "int", "char_int": "int", "char_string": "string", "string_char": "string"},
-        "==": {"bool_bool": "bool"},
+        "==": {"bool_bool": "bool", "char_char": "bool", "int_int": "bool", "string_string": "bool_str"},
+        "<=": {"bool_bool": "bool", "char_char": "bool", "int_int": "bool", "string_string": "bool_str"},
+        ">=": {"bool_bool": "bool", "char_char": "bool", "int_int": "bool", "string_string": "bool_str"},
+        "<": {"bool_bool": "bool", "char_char": "bool", "int_int": "bool", "string_string": "bool_str"},
+        ">": {"bool_bool": "bool", "char_char": "bool", "int_int": "bool", "string_string": "bool_str"},
         "*": {"int_int": "int"}
         }
     if expr.data == "entier":
@@ -283,7 +288,28 @@ mov rax, [rdx + 8 + rcx*8]"""
             label = register_string_literal(repr(const_value))
             return f"lea rax, [rel {label}]"
         elif binaire_type == "bool":
-            print("OPBIN BOOL DETECTED")
+            return f"""
+{asm_left}
+push rax
+{asm_right}
+mov rbx, rax
+pop rax
+cmp rax, rbx
+{op2asm[e_op.value]} al
+movzx eax, al """
+        elif binaire_type == "bool_str":
+            return f"""
+{asm_left}
+push rax
+{asm_right}
+mov rbx, rax
+pop rax
+mov rdi, rax
+mov rsi, rbx
+call strcmp
+cmp rax, 0
+{op2asm[e_op.value]} al
+movzx eax, al """
         elif binaire_type == "int":
             return f"""{asm_left}
 push rax
