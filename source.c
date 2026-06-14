@@ -31,7 +31,7 @@ main(int argc, char* argv) {
     print(x);
     int z = len(tableau);
     print(z);
-    int[] tableau2 = {{1, 2}, {3, 4}, {5, 6}};
+    int[][] tableau2 = {{1, 2}, {3, 4}, {5, 6}};
     int[] extrait = tableau2[1];
     int size = len(tableau2[0]);
     print(size);

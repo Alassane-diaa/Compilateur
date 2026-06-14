@@ -13,9 +13,11 @@ IDENTIFIER: /[a-zA-Z_][a-zA-Z_0-9]*/
 CHAR: /'([^"\\\\]|\\\\.)'/
 STRING: /"([^"\\\\]|\\\\.)*"/
 BOOL.2: "true" | "false"
-TYPE.2: "int" | "char" | "string" | "bool" | "int[]" | "char[]" | "string[]"
+BASE_TYPE.2: "int" | "char" | "string" | "bool"
+BRACKET: "[]"
 OPBIN: /[+\\-*\\/<>%]/ | "==" | "<" | ">" | "<=" | ">="
-decl: TYPE IDENTIFIER -> declaration
+type_expr: BASE_TYPE BRACKET* -> type_expr
+decl: type_expr IDENTIFIER -> declaration
 expression: IDENTIFIER -> variable 
           | SIGNED_NUMBER -> entier
           | BOOL -> bool
@@ -29,8 +31,8 @@ expression: IDENTIFIER -> variable
 lhs: IDENTIFIER -> variable
     | lhs "[" expression "]" -> index
 commande: lhs "=" expression ";" -> assignation
-        | TYPE IDENTIFIER ";"-> declaration
-        | TYPE lhs "=" expression ";" -> declaration_assignation
+        | type_expr IDENTIFIER ";"-> declaration
+        | type_expr lhs "=" expression ";" -> declaration_assignation
         | "print" "(" expression ")" ";" -> print
         | "if" "(" expression ")" "{" commande "}" -> if
         | "while" "(" expression ")" "{" commande "}" -> while
@@ -46,6 +48,13 @@ op2asm = {"+": "add rax, rbx", "-": "sub rax, rbx",
           "<": "setl", ">": "setg", "<=": "setle", ">=": "setge", "==": "sete"}
 string_id_to_value = {}
 var_types = {}
+
+
+def _type_str(type_node) -> str:
+    """Reconstruit la chaîne de type depuis un noeud type_expr, ex: 'int[][]'."""
+    base = type_node.children[0].value  # BASE_TYPE token
+    brackets = "[]" * (len(type_node.children) - 1)
+    return base + brackets
 
 
 def _eval_const_string(expr):
@@ -67,7 +76,14 @@ def _eval_const_string(expr):
     return None
 
 def _is_array_type(vartype: str) -> bool:
-    return vartype in ("int[]", "char[]", "string[]")
+    return "[]" in vartype
+
+
+def _array_element_type(vartype: str) -> str:
+    """Retire un niveau de tableau: 'int[][]' -> 'int[]', 'int[]' -> 'int'."""
+    if vartype.endswith("[]"):
+        return vartype[:-2]
+    return vartype
 
 
 def _decls_for_var(varname: str, vartype: str) -> str:
@@ -101,8 +117,6 @@ def expr_type(expr) -> str:
         return "string"
     if expr.data == "char_at":
         return "char"
-    if expr.data == "char_at":
-        return "char"
     if expr.data == "variable":
         name = expr.children[0].value
         if name not in var_types:
@@ -125,7 +139,7 @@ def expr_type(expr) -> str:
         if base_name and _is_argv_base(base_name):
             return "string"
         if base_name and base_name in var_types:
-            return var_types[base_name]
+            return _array_element_type(var_types[base_name])
         raise NameError(f"undeclared variable: {base_name}")
     return "int"
 
@@ -181,13 +195,13 @@ def _asm_build_tableau(elements: list) -> str:
     return "\n".join(lines)
 
 
-def _asm_assign_tableau(lhs_name: str, elements: list, decl=False) -> tuple[str, str]:
+def _asm_assign_tableau(lhs_name: str, elements: list, vartype: str, decl=False) -> tuple[str, str]:
     """
     Génère le code pour assigner un tableau à lhs_name.
     """
     decls = ""
     if decl:
-        decls += _decls_for_var(lhs_name, "int[]")
+        decls += _decls_for_var(lhs_name, vartype)
     code = _asm_build_tableau(elements)
     return f"{code}\nmov [{lhs_name}], rax", decls
 
@@ -213,6 +227,7 @@ mov rdi, rax
 mov rsi, [rsp]
 call strcat
 add rsp, 16"""
+
 
 def _asm_index_bounds_guard() -> tuple[str, int]:
     global bounds_cpt
@@ -273,7 +288,7 @@ movzx eax, byte [rdx + rcx]"""
             return f"""{arg_asm}
         mov rdi, rax
         call strlen"""
-        if arg_type in ["int[]", "char[]", "string[]"]:
+        if _is_array_type(arg_type):
             arg_asm = asm_expression(arg)
             return f"""{arg_asm}
 mov rax, [rax]"""
@@ -373,7 +388,7 @@ def asm_commande(c) -> tuple[str, str]:
     global cpt
     decls = ""
     if c.data == "declaration":
-        vartype = c.children[0].value
+        vartype = _type_str(c.children[0])
         varname = c.children[1].value
         var_types[varname] = vartype
         string_id_to_value.pop(varname, None)
@@ -395,18 +410,17 @@ def asm_commande(c) -> tuple[str, str]:
 
         if exp.data == "tableau":
             lhs_name = _base_name(lhs_node)
-            code, _ = _asm_assign_tableau(lhs_name, exp.children, decl=False)
+            vartype = var_types.get(lhs_name, "int[]")
+            code, _ = _asm_assign_tableau(lhs_name, exp.children, vartype, decl=False)
             return code, decls
 
         pre, addr = asm_lhs(lhs_node)
         return f"{pre}{asm_expression(exp)}\nmov [{addr}], rax", decls
 
     elif c.data == "declaration_assignation":
-        # collect var types in the body
-        vartype = c.children[0].value
+        vartype = _type_str(c.children[0])
         varname = _lhs_name(c.children[1])
         var_types[varname] = vartype
-        # collect declarations in the body to store them in data section
         lhs_node = c.children[1]
         exp = c.children[2]
 
@@ -422,7 +436,7 @@ def asm_commande(c) -> tuple[str, str]:
 
         if exp.data == "tableau":
             lhs_name = _base_name(lhs_node)
-            code, new_decls = _asm_assign_tableau(lhs_name, exp.children, decl=True)
+            code, new_decls = _asm_assign_tableau(lhs_name, exp.children, vartype, decl=True)
             return code, new_decls
 
         pre, addr = asm_lhs(lhs_node)
@@ -511,7 +525,7 @@ def pp_commande(ast) -> str:
         ed = pp_expression(ast.children[1])
         return f"{eg} = {ed} ;"
     elif ast.data == "declaration_assignation":
-        vartype = ast.children[0].value
+        vartype = _type_str(ast.children[0])
         var = pp_lhs(ast.children[1])
         exp = pp_expression(ast.children[2])
         return f"{vartype} {var} = {exp} ;"
