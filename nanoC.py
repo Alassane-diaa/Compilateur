@@ -7,7 +7,6 @@ cpt = 0
 bounds_cpt = 0
 string_literals: dict[str, str] = {}
 
-# add .2 to add priority (so that bool or int is not considered as an identifier)
 grammaire = lark.Lark("""
 IDENTIFIER: /[a-zA-Z_][a-zA-Z_0-9]*/
 CHAR: /'([^"\\\\]|\\\\.)'/
@@ -55,23 +54,19 @@ declared_vars: set[str] = set()
 
 
 def _type_str(type_node) -> str:
-    """Reconstruit la chaîne de type depuis un noeud type_expr, ex: 'int[][]'.
-    Les tailles explicites (int[E]) comptent comme une dimension '[]' mais
-    leur expression E n'apparaît pas dans la signature de type."""
-    base = type_node.children[0].value  # BASE_TYPE token
+    """Reconstruit la chaîne de type depuis un noeud type_expr, ex: 'int[][]'."""
+    base = type_node.children[0].value
     brackets = "[]" * (len(type_node.children) - 1)
     return base + brackets
 
 
 def _type_sizes(type_node) -> list:
-    """Retourne la liste des tailles déclarées pour chaque dimension de
-    type_expr, dans l'ordre. Chaque élément est soit un noeud d'expression
-    (taille E donnée explicitement, ex: int[E]) soit None (ex: int[])."""
+    """Retourne la liste des tailles déclarées pour chaque dimension de type_expr."""
     sizes = []
     for child in type_node.children[1:]:
-        if hasattr(child, "data"):  # noeud d'expression -> taille explicite
+        if hasattr(child, "data"):
             sizes.append(child)
-        else:  # token BRACKET "[]" -> pas de taille
+        else:
             sizes.append(None)
     return sizes
 
@@ -99,7 +94,7 @@ def _is_array_type(vartype: str) -> bool:
 
 
 def _array_element_type(vartype: str) -> str:
-    """Retire un niveau de tableau: 'int[][]' -> 'int[]', 'int[]' -> 'int'."""
+    """Retire un niveau de tableau: 'int[][]' -> 'int[]'."""
     if vartype.endswith("[]"):
         return vartype[:-2]
     return vartype
@@ -116,7 +111,6 @@ def collect_decl_var_types(vars_ast):
         vartype = vars_ast.children[i].value
         varname = vars_ast.children[i + 1].value
         var_types[varname] = vartype
-
 
 
 def expr_type(expr) -> str:
@@ -162,6 +156,11 @@ def expr_type(expr) -> str:
         if base_name and _is_argv_base(base_name):
             return "string"
         return _array_element_type(expr_type(base))
+    if expr.data == "tableau":
+        if not expr.children:
+            return "void[]"
+        first_type = expr_type(expr.children[0])
+        return first_type + "[]"
     return "int"
 
 def register_string_literal(token_value: str) -> str:
@@ -175,7 +174,6 @@ def escape_nasm_string(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
 
 def _base_name(ast) -> str:
-    """Remonte jusqu'au nom de la variable de base d'un lhs ou expression."""
     if ast.data == "variable":
         return ast.children[0].value
     elif ast.data == "index":
@@ -194,11 +192,24 @@ def _lhs_name(ast) -> str:
 def _is_argv_base(base_name: str) -> bool:
     return base_name == "argv"
 
-def _asm_build_tableau(elements: list) -> str:
-    """Construit un tableau heap avec un en-tête de longueur.
 
-    Le registre rax contient le pointeur du bloc alloué à la fin.
-    """
+def _check_array_elements_type(expected_element_type: str, elements: list, context_name: str):
+    """Vérifie récursivement l'homogénéité des types au sein d'un littéral de tableau."""
+    for idx, elem in enumerate(elements):
+        current_type = expr_type(elem)
+        if current_type == "bool_str":
+            current_type = "bool"
+        if elem.data == "tableau" and expected_element_type.endswith("[]"):
+            _check_array_elements_type(_array_element_type(expected_element_type), elem.children, context_name)
+        elif current_type != expected_element_type:
+            raise TypeError(
+                f"Type error in '{context_name}' at element {idx}: "
+                f"expected '{expected_element_type}', got '{current_type}'"
+            )
+
+
+def _asm_build_tableau(elements: list) -> str:
+    """Construit un tableau heap avec un en-tête de longueur."""
     n = len(elements)
     size = (n + 1) * 8
     lines = [
@@ -217,16 +228,12 @@ def _asm_build_tableau(elements: list) -> str:
 
 
 def _asm_assign_tableau(lhs_name: str, elements: list, vartype: str, decl=False, size_expr=None) -> tuple[str, str]:
-    """
-    Génère le code pour assigner un tableau à lhs_name.
-    Si size_expr est fourni (taille déclarée pour la 1ère dimension, ex: int[E] t = {...}),
-    vérifie que len(elements) == E :
-      - si size_expr est une constante entière, vérification à la compilation
-      - sinon, vérification générée au runtime (sortie avec format_size_mismatch si différent)
-    """
     decls = ""
     if decl:
         decls += _decls_for_var(lhs_name, vartype)
+
+    expected_el_type = _array_element_type(vartype)
+    _check_array_elements_type(expected_el_type, elements, lhs_name)
 
     n = len(elements)
     check_code = ""
@@ -294,8 +301,6 @@ call exit
 
 
 def _asm_size_check(n_literal: int, size_expr) -> str:
-    """Vérifie au runtime que size_expr == n_literal (nombre d'éléments du
-    littéral assigné). Si différent, affiche une erreur et quitte."""
     global bounds_cpt
     idx = bounds_cpt
     bounds_cpt += 1
@@ -314,10 +319,6 @@ size_ok{idx}: nop
 
 
 def _asm_null_check(reg: str) -> str:
-    """Vérifie au runtime que le registre `reg` (pointeur de tableau) n'est
-    pas nul (cas d'un 'type[] var;' déclaré sans initialiseur ni taille,
-    jamais assigné avant utilisation). Si nul, affiche une erreur et quitte
-    plutôt que de déréférencer un pointeur null."""
     global bounds_cpt
     idx = bounds_cpt
     bounds_cpt += 1
@@ -402,7 +403,7 @@ pop rcx
 {guard}mov rax, [rdx + 8 + rcx*8]
 {error_block}"""
     
-    else: # binaire
+    else: 
         e_left = e.children[0]
         e_op   = e.children[1]
         e_right = e.children[2]
@@ -415,7 +416,7 @@ pop rcx
                 return _asm_concat_strings(asm_left, asm_right)
             label = register_string_literal(repr(const_value))
             return f"lea rax, [rel {label}]"
-        elif binaire_type == "bool":
+        elif binaire_type == "bool" or binaire_type == "bool_str":
             return f"""
 {asm_left}
 push rax
@@ -481,6 +482,7 @@ def asm_commande(c) -> tuple[str, str]:
         if sizes and sizes[0] is not None:
             var_declared_size[varname] = sizes[0]
             size_expr = sizes[0]
+            
             code = f"""{asm_expression(size_expr)}
 push rax
 inc rax
@@ -517,6 +519,15 @@ mov [{varname}], rax"""
             return code, decls
 
         pre, addr = asm_lhs(lhs_node)
+        
+        expected_type = _array_element_type(expr_type(lhs_node)) if lhs_node.data == "index" else var_types.get(lhs_name)
+        current_type = expr_type(exp)
+        if current_type == "bool_str":
+            current_type = "bool"
+            
+        if expected_type and current_type != expected_type:
+            raise TypeError(f"Type error in assignment to '{lhs_name}': expected '{expected_type}', got '{current_type}'")
+
         return f"{pre}{asm_expression(exp)}\nmov [{addr}], rax", decls
 
     elif c.data == "declaration_assignation":
@@ -548,6 +559,14 @@ mov [{varname}], rax"""
             return code, new_decls
 
         pre, addr = asm_lhs(lhs_node)
+        
+        current_type = expr_type(exp)
+        if current_type == "bool_str":
+            current_type = "bool"
+            
+        if vartype != current_type:
+            raise TypeError(f"Type error in declaration of '{varname}': expected '{vartype}', got '{current_type}'")
+
         decls += _decls_for_var(addr, vartype)
         return f"{pre}{asm_expression(exp)}\nmov [{addr}], rax", decls
 
@@ -557,9 +576,13 @@ mov [{varname}], rax"""
     elif c.data == "print":
         expr = c.children[0]
         asm_expr = asm_expression(expr)
-        if expr_type(expr) == "string":
+        type_pr = expr_type(expr)
+        if type_pr == "bool_str":
+            type_pr = "bool"
+            
+        if type_pr == "string":
             _format = "format_str"
-        elif expr_type(expr) == "char":
+        elif type_pr == "char":
             _format = "format_char"
         else:
             _format = "format_int"
@@ -711,7 +734,5 @@ def asm_main(ast):
 if __name__ == "__main__":
     src = open("source.c", "r").read()
     t = grammaire.parse(src)
-    # print(t.pretty())
     with open("resultat.asm", "w") as f:
         f.write(asm_main(t))
-        # f.write(pp_main(t))
