@@ -1,66 +1,52 @@
 main(int argc, char* argv) {
+    // 1. Déclarations strictes (le compilateur rejetterait "x = 5;" sans type)
+    float pi = 3.1415;
+    float rayon = 10.0;
     
-    bool hp1 = false;
-    bool hp2 = true;
-    bool hp3 = hp1 == hp2;
-    int c = 1 + 2;
-    int h = len(argv);
-    int x = 1;
-    int y = 2;
+    // 2. Opérations usuelles sur les floats
+    float surface = pi * rayon * rayon;
+    print("--- Operations usuelles ---");
+    print("Surface (doit etre ~314.15) :");
+    print(surface);
     
-    char a = 'a';
-    char b = 'b';
-    bool hp5 = a < b;
-    print(hp5);
-    string s = argv[h-1];
-    string s1 = "hello1";
-    string s3;
-    char f = charAt(s1, 0);
-    print(f);
-    s = argv[1];
-    s3 = ""+"coucou";
-    string s2 = s1 + s;
-    print(s);
-    print(s3);
-    bool hp4;
-    hp4 = s1 == s;
-    print(hp4);
-    int[5] tableau = {1, 2, 3, 4, 5};
-    tableau[2] = 13;
-    x = tableau[2];
-    print(x);
-    int z = len(tableau);
-    print(z);
-    int[3][] tableau2 = {{0, 1, 2}, {3, 4}, {5, 6}};
-    int[] extrait = tableau2[1];
-    int size = len(tableau2[0]);
-    print(size);
-    print(len(extrait));
-    y = tableau[1];
-    print(tableau2[1][0]);
-    print(tableau2[1][1]);
+    // 3. Puissances de 10 (Notation scientifique)
+    float grand_nombre = 1.5E+3;   // 1500.0
+    float petit_nombre = 2.5e-1;   // 0.25
+    print("--- Puissances de 10 ---");
+    print(grand_nombre);
+    print(petit_nombre);
 
-    int sum = 0;
-    for (int i = 0; i < len(tableau); i = i+1) {
-        print(tableau[i]);
-        sum = sum + tableau[i];
-    }
-    print(sum);
+    // 4. Conversions implicites : float + int = int (selon tes specs)
+    int entier_dix = 10;
+    float cinq_virgule_cinq = 5.5;
+    int resultat_implicite1 = cinq_virgule_cinq + entier_dix; 
+    // Fait 5.5 + 10 -> troncature -> 15
+    print("--- Conversions implicites (float + int -> int) ---");
+    print("5.5 + 10 = (attendu 15) :");
+    print(resultat_implicite1);
 
-    int[5] t = {10, 20, 30, 40, 50};
-    for (int k = 0; k < len(t); k = k+1) {
-        t[k] = t[k] + 1;
-    }
-    for (int k = 0; k < len(t); k = k+1) {
-        print(t[k]);
-    }
+    // 5. Conversions implicites : float + char = int
+    char lettre_A = 'A'; // Le code ASCII de 'A' est 65
+    float deux_virgule_huit = 2.8;
+    int resultat_implicite2 = deux_virgule_huit + lettre_A; 
+    // Fait 2.8 + 65 -> 67.8 -> troncature -> 67
+    print("--- Conversions implicites (float + char -> int) ---");
+    print("2.8 + 'A' = (attendu 67) :");
+    print(resultat_implicite2);
 
-    for (int p = 0; p < len(tableau2); p = p+1) {
-        int[] row = tableau2[p];
-        for (int j = 0; j < len(row); j = j+1) {
-            print(row[j]); // test commentaire
-        }
-    }
-    // test commentaire
-    return (y);
+    // 6. Casts explicites
+    int cast_vers_entier = (int) 9.99; // Va tronquer à 9
+    float cast_vers_float = (float) 42; // Va convertir en 42.0
+    print("--- Casts explicites ---");
+    print("(int) 9.99 = (attendu 9) :");
+    print(cast_vers_entier);
+    print("(float) 42 = (attendu 42.0) :");
+    print(cast_vers_float);
+
+    // --- TEST D'ERREUR (Commenté pour que le programme compile) ---
+    // Si tu décommentes la ligne suivante, le compilateur plantera avec :
+    // "Erreur fatale: Variable non déclarée 'variable_non_declaree'"
+    // variable_non_declaree = 50.0;
+
+    return (0);
 }
