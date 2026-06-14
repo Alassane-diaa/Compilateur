@@ -40,9 +40,13 @@ commande: lhs "=" expression ";" -> assignation
         | (commande)* commande -> sequence
         | "pass" -> pass
 main: "main" "(" "int" "argc" "," "char*" "argv" ")" "{" commande "return" "(" expression ")" ";" "}"       
+
+COMMENT: "//" /[^\\n]*/
+
 %import common.WS
 %import common.SIGNED_NUMBER
 %ignore WS
+%ignore COMMENT
 """, start="main")
 
 op2asm = {"+": "add rax, rbx", "-": "sub rax, rbx", 

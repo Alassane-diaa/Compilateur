@@ -58,9 +58,9 @@ main(int argc, char* argv) {
     for (int p = 0; p < len(tableau2); p = p+1) {
         int[] row = tableau2[p];
         for (int j = 0; j < len(row); j = j+1) {
-            print(row[j]);
+            print(row[j]); // test commentaire
         }
     }
-
+    // test commentaire
     return (y);
 }
