@@ -6,7 +6,11 @@ if [ -z "$1" ]; then
 fi
 
 SOURCE_FILE="$1"
-EXE_NAME=$(basename "$SOURCE_FILE" .c)
+
+DIR_NAME=$(dirname "$SOURCE_FILE")
+BASE_NAME=$(basename "$SOURCE_FILE" .c)
+
+EXE_PATH="$DIR_NAME/$BASE_NAME.out"
 
 python3 nanoC.py "$SOURCE_FILE"
 if [ $? -ne 0 ]; then
@@ -18,10 +22,10 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-gcc -no-pie resultat.o -o "$EXE_NAME".out
+gcc -no-pie resultat.o -o "$EXE_PATH"
 if [ $? -ne 0 ]; then
     exit 1
 fi
 
 rm -f resultat.asm resultat.o
-echo "Compilation réussie : ./$EXE_NAME.out"
+echo "Compilation réussie : $EXE_PATH"
