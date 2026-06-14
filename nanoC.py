@@ -313,6 +313,27 @@ size_ok{idx}: nop
 """
 
 
+def _asm_null_check(reg: str) -> str:
+    """Vérifie au runtime que le registre `reg` (pointeur de tableau) n'est
+    pas nul (cas d'un 'type[] var;' déclaré sans initialiseur ni taille,
+    jamais assigné avant utilisation). Si nul, affiche une erreur et quitte
+    plutôt que de déréférencer un pointeur null."""
+    global bounds_cpt
+    idx = bounds_cpt
+    bounds_cpt += 1
+    return f"""cmp {reg}, 0
+jne null_ok{idx}
+mov rax, 1
+mov rdi, 2
+lea rsi, [rel format_null_array]
+mov rdx, 47
+syscall
+mov rdi, 1
+call exit
+null_ok{idx}: nop
+"""
+
+
 def asm_expression(e):
     if e.data == "variable":
         return f"mov rax, [{e.children[0].value}]"
@@ -349,8 +370,9 @@ movzx eax, byte [rdx + rcx]"""
         call strlen"""
         if _is_array_type(arg_type):
             arg_asm = asm_expression(arg)
+            null_check = _asm_null_check("rax")
             return f"""{arg_asm}
-mov rax, [rax]"""
+{null_check}mov rax, [rax]"""
         else:
             raise NotImplementedError("len only avaible for strings, chars and arrays")
     if e.data == "tableau":
@@ -368,13 +390,14 @@ mov rdx, rax
 pop rcx
 mov rax, [rdx + rcx*8]"""
         asm_base = asm_expression(base)
+        null_check = _asm_null_check("rax")
         guard, guard_id = _asm_index_bounds_guard()
         ok_label = f"bounds_ok{guard_id}"
         error_block = _asm_bounds_error_block(guard_id, ok_label)
         return f"""{asm_idx}
 push rax
 {asm_base}
-mov rdx, rax
+{null_check}mov rdx, rax
 pop rcx
 {guard}mov rax, [rdx + 8 + rcx*8]
 {error_block}"""
@@ -436,9 +459,10 @@ def asm_lhs(ast) -> tuple[str, str]:
             addr = "rdx + rcx*8"
             return pre, addr
         asm_base = asm_expression(base)
+        null_check = _asm_null_check("rax")
         guard, guard_id = _asm_index_bounds_guard()
         ok_label = f"bounds_ok{guard_id}"
-        pre = f"{asm_idx}\npush rax\n{asm_base}\nmov rdx, rax\npop rcx\n{guard}jmp {ok_label}\nbounds_error{guard_id}:\nmov rax, 1\nmov rdi, 2\nlea rsi, [rel format_bounds]\nmov rdx, 38\nsyscall\nmov rdi, 1\ncall exit\n{ok_label}: nop\n"
+        pre = f"{asm_idx}\npush rax\n{asm_base}\n{null_check}mov rdx, rax\npop rcx\n{guard}jmp {ok_label}\nbounds_error{guard_id}:\nmov rax, 1\nmov rdi, 2\nlea rsi, [rel format_bounds]\nmov rdx, 38\nsyscall\nmov rdi, 1\ncall exit\n{ok_label}: nop\n"
         addr = f"rdx + 8 + rcx*8"
         return pre, addr
     return "", ""
