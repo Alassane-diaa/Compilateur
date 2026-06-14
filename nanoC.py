@@ -1,3 +1,4 @@
+import sys
 from typing import Literal
 
 import ast
@@ -736,7 +737,19 @@ def asm_main(ast):
 
 
 if __name__ == "__main__":
-    src = open("source.c", "r").read()
+    if len(sys.argv) < 2:
+        print("Erreur : Aucun fichier source fourni.")
+        print("Usage: python nanoC.py <fichier_source.c>")
+        sys.exit(1)
+        
+    fichier_cible = sys.argv[1]
+    try:
+        with open(fichier_cible, "r") as f:
+            src = f.read()
+    except FileNotFoundError:
+        print(f"Erreur : Le fichier '{fichier_cible}' est introuvable.")
+        sys.exit(1)
+        
     t = grammaire.parse(src)
     with open("resultat.asm", "w") as f:
         f.write(asm_main(t))

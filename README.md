@@ -1,9 +1,7 @@
 ## Pipeline
-```python
-python nanoC.py  
-nasm -f elf64 resultat.asm  
-gcc -no-pie resultat.o
-./a.out "hello"
+```bash
+./nanoc.sh source.c
+./source.out "coucou"
 ```
 
 Notes:
