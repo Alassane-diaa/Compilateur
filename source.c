@@ -44,9 +44,63 @@ main(int argc, char* argv) {
     print(cast_vers_float);
 
     // --- TEST D'ERREUR (Commenté pour que le programme compile) ---
-    // Si tu décommentes la ligne suivante, le compilateur plantera avec :
     // "Erreur fatale: Variable non déclarée 'variable_non_declaree'"
     // variable_non_declaree = 50.0;
+
+    return (0);
+}
+
+main(int argc, char* argv) {
+    // ----------------------------------------------------
+    // TEST 1 : RAPPEL SUR LES FLOATS SIMPLES ET CONVERSIONS
+    // ----------------------------------------------------
+    float pi = 3.1415;
+    float rayon = 10.0;
+    float surface = pi * rayon * rayon;
+    
+    print("--- Tests basiques ---");
+    print(surface); // Attendu ~314.15
+    
+    // Notation scientifique et puissances de 10
+    float grand_nombre = 1.5E+2; // 150.0
+    print("Notation E+2 :");
+    print(grand_nombre);
+    
+    // ----------------------------------------------------
+    // TEST 2 : TABLEAUX DE FLOATS (FLOAT[])
+    // ----------------------------------------------------
+    print("--- Tests des Tableaux de Floats ---");
+    
+    // Déclaration et initialisation par accolades
+    float[] temperatures = {22.5, 19.8, 24.1, 15.0e-1};
+    
+    // Test de l'opérateur 'len()' sur un float[]
+    print("Taille du tableau :");
+    print(len(temperatures)); // Attendu 4
+    
+    // Lecture des éléments du tableau par index
+    print("Temperature a l'index 0 (attendu 22.5) :");
+    print(temperatures[0]);
+    print("Temperature a l'index 3 avec e-1 (attendu 1.5) :");
+    print(temperatures[3]);
+
+    // Modification d'un élément du tableau
+    print("Modification de l'index 1 à 42.42...");
+    temperatures[1] = 42.42;
+    
+    print("Nouvelle valeur a l'index 1 :");
+    print(temperatures[1]);
+
+    // ----------------------------------------------------
+    // TEST 3 : TABLEAU ET CONVERSIONS EXPLICITES
+    // ----------------------------------------------------
+    print("--- Test des casts dans les tableaux ---");
+    
+    // Comme le typage est fort, on ne peut pas mettre de int 
+    // directement dans un float[], mais on peut le "caster" :
+    float[] mix_cast = {1.1, (float) 5, 3.3};
+    print("Valeur a l'index 1 issue d'un cast (attendu 5.0) :");
+    print(mix_cast[1]);
 
     return (0);
 }
