@@ -20,19 +20,21 @@ BRACKET: "[]"
 OPBIN: /[+\\-*\\/<>%]/ | "==" | "<" | ">" | "<=" | ">="
 type_expr: BASE_TYPE (BRACKET | "[" expression "]")* -> type_expr
 decl: type_expr IDENTIFIER -> declaration
-expression: IDENTIFIER -> variable 
-          | FLOAT -> float_expr
-          | SIGNED_NUMBER -> entier
-          | BOOL -> bool
-          | CHAR -> char
-          | STRING -> string
-          | "charAt" "(" expression "," expression ")" -> char_at
-          | "len" "(" expression ")" -> len_expr  
-          | "(" BASE_TYPE ")" expression -> cast
-          | "(" expression ")" -> paren
-          | expression OPBIN expression -> binaire
-          | "{" (expression ",")* expression "}" -> tableau
-          | expression "[" expression "]" -> index
+?atom: IDENTIFIER -> variable 
+     | FLOAT -> float_expr
+     | SIGNED_NUMBER -> entier
+     | BOOL -> bool
+     | CHAR -> char
+     | STRING -> string
+     | "charAt" "(" expression "," expression ")" -> char_at
+     | "len" "(" expression ")" -> len_expr  
+     | "(" BASE_TYPE ")" expression -> cast
+     | "(" expression ")" -> paren
+     | "{" (expression ",")* expression "}" -> tableau
+     | atom "[" expression "]" -> index
+
+?expression: atom
+           | expression OPBIN expression -> binaire
 lhs: IDENTIFIER -> variable
     | lhs "[" expression "]" -> index
 for_step: lhs "=" expression -> assignation
@@ -60,11 +62,11 @@ op2asm = {
     "-": "sub rax, rbx", 
     "*": "imul rax, rbx",
     "/": "cqo\nidiv rbx",
-    "<": "cmp rax, rbx\nsetl al\nmovzx rax, al", 
-    ">": "cmp rax, rbx\nsetg al\nmovzx rax, al", 
-    "<=": "cmp rax, rbx\nsetle al\nmovzx rax, al", 
-    ">=": "cmp rax, rbx\nsetge al\nmovzx rax, al", 
-    "==": "cmp rax, rbx\nsete al\nmovzx rax, al"
+    "<": "setl", 
+    ">": "setg", 
+    "<=": "setle", 
+    ">=": "setge", 
+    "==": "sete"
 }
 
 float_op2asm = {"+": "addsd", "-": "subsd", "*": "mulsd", "/": "divsd"}
@@ -451,7 +453,7 @@ ucomisd xmm0, xmm1
 {float_cmp2asm.get(e_op.value, 'sete')} al
 movzx rax, al"""
 
-        elif binaire_type == "bool" or binaire_type == "bool_str":
+        elif binaire_type == "bool":
             return f"""
 {asm_left}
 push rax
