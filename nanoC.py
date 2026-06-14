@@ -4,6 +4,7 @@ import ast
 import lark
 
 cpt = 0
+bounds_cpt = 0
 string_literals: dict[str, str] = {}
 
 # add .2 to add priority (so that bool or int is not considered as an identifier)
@@ -213,6 +214,31 @@ mov rsi, [rsp]
 call strcat
 add rsp, 16"""
 
+def _asm_index_bounds_guard() -> tuple[str, int]:
+    global bounds_cpt
+    idx = bounds_cpt
+    bounds_cpt += 1
+    guard = f"""cmp rcx, 0
+jl bounds_error{idx}
+cmp rcx, qword [rdx]
+jge bounds_error{idx}
+"""
+    return guard, idx
+
+
+def _asm_bounds_error_block(guard_id: int, ok_label: str) -> str:
+    return f"""jmp {ok_label}
+bounds_error{guard_id}:
+mov rax, 1
+mov rdi, 2
+lea rsi, [rel format_bounds]
+mov rdx, 38
+syscall
+mov rdi, 1
+call exit
+{ok_label}: nop"""
+
+
 def asm_expression(e):
     if e.data == "variable":
         return f"mov rax, [{e.children[0].value}]"
@@ -267,12 +293,17 @@ push rax
 mov rdx, rax
 pop rcx
 mov rax, [rdx + rcx*8]"""
+        asm_base = asm_expression(base)
+        guard, guard_id = _asm_index_bounds_guard()
+        ok_label = f"bounds_ok{guard_id}"
+        error_block = _asm_bounds_error_block(guard_id, ok_label)
         return f"""{asm_idx}
 push rax
-{asm_expression(base)}
+{asm_base}
 mov rdx, rax
 pop rcx
-mov rax, [rdx + 8 + rcx*8]"""
+{guard}mov rax, [rdx + 8 + rcx*8]
+{error_block}"""
     
     else: # binaire
         e_left = e.children[0]
@@ -330,7 +361,10 @@ def asm_lhs(ast) -> tuple[str, str]:
             pre = f"{asm_idx}\npush rax\n{asm_expression(base)}\nmov rdx, rax\npop rcx\n"
             addr = "rdx + rcx*8"
             return pre, addr
-        pre = f"{asm_idx}\npush rax\n{asm_expression(base)}\nmov rdx, rax\npop rcx\n"
+        asm_base = asm_expression(base)
+        guard, guard_id = _asm_index_bounds_guard()
+        ok_label = f"bounds_ok{guard_id}"
+        pre = f"{asm_idx}\npush rax\n{asm_base}\nmov rdx, rax\npop rcx\n{guard}jmp {ok_label}\nbounds_error{guard_id}:\nmov rax, 1\nmov rdi, 2\nlea rsi, [rel format_bounds]\nmov rdx, 38\nsyscall\nmov rdi, 1\ncall exit\n{ok_label}: nop\n"
         addr = f"rdx + 8 + rcx*8"
         return pre, addr
     return "", ""
