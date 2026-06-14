@@ -61,9 +61,16 @@ COMMENT: "//" /[^\\n]*/
 %ignore COMMENT
 """, start="main")
 
-op2asm = {"+": "add rax, rbx", "-": "sub rax, rbx", "*": "imul rax, rbx",
-          "<": "setl", ">": "setg", "<=": "setle", ">=": "setge", "==": "sete"}
-
+op2asm = {
+    "+": "add rax, rbx", 
+    "-": "sub rax, rbx", 
+    "*": "imul rax, rbx",
+    "<": "cmp rax, rbx\nsetl al\nmovzx rax, al", 
+    ">": "cmp rax, rbx\nsetg al\nmovzx rax, al", 
+    "<=": "cmp rax, rbx\nsetle al\nmovzx rax, al", 
+    ">=": "cmp rax, rbx\nsetge al\nmovzx rax, al", 
+    "==": "cmp rax, rbx\nsete al\nmovzx rax, al"
+}
 float_op2asm = {"+": "addsd", "-": "subsd", "*": "mulsd", "/": "divsd"}
 
 float_cmp2asm = {"<": "setb", ">": "seta", "<=": "setbe", ">=": "setae", "==": "sete"}
