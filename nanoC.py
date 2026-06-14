@@ -484,9 +484,9 @@ def asm_commande(c) -> tuple[str, str]:
             code = f"""{asm_expression(size_expr)}
 push rax
 inc rax
-imul rax, 8
 mov rdi, rax
-call malloc
+mov rsi, 8
+call calloc
 pop rcx
 mov qword [rax], rcx
 mov [{varname}], rax"""

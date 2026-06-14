@@ -1,4 +1,4 @@
-extern printf, atoi, strlen, malloc, strcpy, strcat, strcmp, exit
+extern printf, atoi, strlen, malloc, calloc, strcpy, strcat, strcmp, exit
 section .data
 format_int: db "%lld",10, 0
 format_str: db "%s",10, 0
