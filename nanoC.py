@@ -1,7 +1,7 @@
+
 import sys
 import struct
 from typing import Literal
-
 import ast
 import lark
 
@@ -31,6 +31,7 @@ expression: IDENTIFIER -> variable
           | "charAt" "(" expression "," expression ")" -> char_at
           | "len" "(" expression ")" -> len_expr  
           | "(" BASE_TYPE ")" expression -> cast
+          | "(" expression ")" -> paren
           | expression OPBIN expression -> binaire
           | "{" (expression ",")* expression "}" -> tableau
           | expression "[" expression "]" -> index
@@ -62,8 +63,10 @@ COMMENT: "//" /[^\\n]*/
 
 op2asm = {"+": "add rax, rbx", "-": "sub rax, rbx", "*": "imul rax, rbx",
           "<": "setl", ">": "setg", "<=": "setle", ">=": "setge", "==": "sete"}
-          
+
 float_op2asm = {"+": "addsd", "-": "subsd", "*": "mulsd", "/": "divsd"}
+
+float_cmp2asm = {"<": "setb", ">": "seta", "<=": "setbe", ">=": "setae", "==": "sete"}
 
 string_id_to_value = {}
 var_types = {}
@@ -114,13 +117,15 @@ def expr_type(expr) -> str:
     binaire_type = {
         "+": {"int_int": "int", "string_string": "string", "char_char": "char", 
               "int_char": "int", "char_int": "int", "float_float": "float", 
-              "float_int": "int", "int_float": "int", "float_char": "int", "char_float": "int"},
-        "-": {"int_int": "int", "float_float": "float", "float_int": "int", "int_float": "int"},
-        "*": {"int_int": "int", "float_float": "float", "float_int": "int", "int_float": "int"},
-        "/": {"int_int": "int", "float_float": "float", "float_int": "int", "int_float": "int"},
+              "float_int": "float", "int_float": "float", "float_char": "float", "char_float": "float"},
+        "-": {"int_int": "int", "float_float": "float", "float_int": "float", "int_float": "float"},
+        "*": {"int_int": "int", "float_float": "float", "float_int": "float", "int_float": "float"},
+        "/": {"int_int": "int", "float_float": "float", "float_int": "float", "int_float": "float"},
         "==": {"bool_bool": "bool", "char_char": "bool", "int_int": "bool", "float_float": "bool", "string_string": "bool_str"},
         "<": {"int_int": "bool", "float_float": "bool"},
-        ">": {"int_int": "bool", "float_float": "bool"}
+        ">": {"int_int": "bool", "float_float": "bool"},
+        "<=": {"int_int": "bool", "float_float": "bool"},
+        ">=": {"int_int": "bool", "float_float": "bool"}
     }
     
     if expr.data == "entier": return "int"
@@ -131,20 +136,23 @@ def expr_type(expr) -> str:
     if expr.data == "char_at": return "char"
     if expr.data == "len_expr": return "int"
     if expr.data == "cast": return expr.children[0].value
+    if expr.data == "paren": return expr_type(expr.children[0])
     
     if expr.data == "variable":
         name = expr.children[0].value
         if name not in var_types:
-            # INTERDICTION FORTE : Variable non déclarée
-            raise NameError(f"Erreur fatale: Variable non déclarée '{name}'")
+            raise NameError(f"Erreur fatale: Variable non declaree '{name}'")
         return var_types[name]
         
     if expr.data == "binaire":
         e_left, e_op, e_right = expr.children[0], expr.children[1].value, expr.children[2]
+        if e_op == "%" and (expr_type(e_left) == "float" or expr_type(e_right) == "float"):
+            raise TypeError("Erreur de type : L'operateur modulo '%' est interdit sur les flottants.")
+            
         key = f"{expr_type(e_left)}_{expr_type(e_right)}"
         if e_op in binaire_type and key in binaire_type[e_op]:
             return binaire_type[e_op][key]
-        return "int" # Fallback
+        return "int"
         
     if expr.data == "index":
         base_name = _base_name(expr.children[0])
@@ -181,9 +189,8 @@ def asm_expression(e):
     
     if e.data == "float_expr":
         f_val = float(e.children[0].value)
-        # Convertir le float python en représentation binaire 64-bit IEEE 754 pour NASM
         hex_val = hex(struct.unpack('<Q', struct.pack('<d', f_val))[0])
-        return f"mov rax, {hex_val} ; float {f_val}"
+        return f"mov rax, {hex_val}"
         
     if e.data == "char": return f"mov rax, {ord(e.children[0].value[1])}"
     if e.data == "bool": return f"mov rax, {'1' if e.children[0].value=='true' else '0'}"
@@ -191,6 +198,8 @@ def asm_expression(e):
         label = register_string_literal(e.children[0].value)
         return f"lea rax, [rel {label}]"
         
+    if e.data == "paren": return asm_expression(e.children[0])
+
     if e.data == "cast":
         target_type = e.children[0].value
         inner_type = expr_type(e.children[1])
@@ -200,8 +209,22 @@ def asm_expression(e):
             return f"{inner_asm}\ncvtsi2sd xmm0, rax\nmovq rax, xmm0"
         if inner_type == "float" and target_type == "int":
             return f"{inner_asm}\nmovq xmm0, rax\ncvttsd2si rax, xmm0"
-        return inner_asm # Autres casts sans effet assembleur immédiat
+        return inner_asm 
         
+    if e.data == "index":
+        base_asm = asm_expression(e.children[0])
+        idx_asm = asm_expression(e.children[1])
+        return f"{base_asm}\npush rax\n{idx_asm}\npop rbx\nimul rax, 8\nadd rax, rbx\nmov rax, [rax]"
+
+    if e.data == "tableau":
+        size = len(e.children)
+        asm = f"mov rdi, {size}\nmov rsi, 8\ncall calloc\npush rax"
+        for i, child in enumerate(e.children):
+            child_asm = asm_expression(child)
+            asm += f"\n{child_asm}\npop rbx\nmov [rbx + {i*8}], rax\npush rbx"
+        asm += "\npop rax"
+        return asm
+
     if e.data == "binaire":
         e_left, e_op, e_right = e.children[0], e.children[1], e.children[2]
         res_type = expr_type(e)
@@ -210,39 +233,20 @@ def asm_expression(e):
         asm_l = asm_expression(e_left)
         asm_r = asm_expression(e_right)
 
-        # Calcul flottant pur (float + float = float)
+        if res_type == "bool" and type_l == "float" and type_r == "float":
+            return f"{asm_l}\npush rax\n{asm_r}\nmovq xmm1, rax\npop rax\nmovq xmm0, rax\nucomisd xmm0, xmm1\n{float_cmp2asm.get(e_op.value, 'sete')} al\nmovzx rax, al"
+
+        if res_type == "float" and (type_l == "int" or type_r == "int"):
+            conv_l = "cvtsi2sd xmm0, rax\nmovq rax, xmm0" if type_l == "int" else ""
+            conv_r = "cvtsi2sd xmm0, rax\nmovq rax, xmm0" if type_r == "int" else ""
+            return f"{asm_l}\n{conv_l}\npush rax\n{asm_r}\n{conv_r}\nmovq xmm1, rax\npop rax\nmovq xmm0, rax\n{float_op2asm.get(e_op.value, 'addsd')} xmm0, xmm1\nmovq rax, xmm0"
+
         if res_type == "float" and type_l == "float" and type_r == "float":
-            return f"""{asm_l}
-push rax
-{asm_r}
-movq xmm1, rax
-pop rax
-movq xmm0, rax
-{float_op2asm.get(e_op.value, 'addsd')} xmm0, xmm1
-movq rax, xmm0"""
+            return f"{asm_l}\npush rax\n{asm_r}\nmovq xmm1, rax\npop rax\nmovq xmm0, rax\n{float_op2asm.get(e_op.value, 'addsd')} xmm0, xmm1\nmovq rax, xmm0"
 
-        # Conversions Implicites (float + int = int OU float + char = int)
-        if res_type == "int" and (type_l == "float" or type_r == "float"):
-            conv_l = "movq xmm0, rax\ncvttsd2si rax, xmm0" if type_l == "float" else ""
-            conv_r = "movq xmm0, rax\ncvttsd2si rax, xmm0" if type_r == "float" else ""
-            return f"""{asm_l}
-{conv_l}
-push rax
-{asm_r}
-{conv_r}
-mov rbx, rax
-pop rax
-{op2asm.get(e_op.value, 'add rax, rbx')}"""
+        return f"{asm_l}\npush rax\n{asm_r}\nmov rbx, rax\npop rax\n{op2asm.get(e_op.value, 'add rax, rbx')}"
 
-        # Opérations standards
-        return f"""{asm_l}
-push rax
-{asm_r}
-mov rbx, rax
-pop rax
-{op2asm.get(e_op.value, 'add rax, rbx')}"""
-
-    return "" # Simplifié pour la lisibilité
+    return ""
 
 def asm_lhs(ast) -> tuple[str, str]:
     if ast.data == "variable":
@@ -264,16 +268,13 @@ def asm_commande(c) -> tuple[str, str]:
         var_types[varname] = vartype
         exp = c.children[2]
         
-        # Vérification des types
         current_type = expr_type(exp)
         if vartype != current_type and not (vartype=="int" and current_type=="float"): 
-            # On autorise l'assignation float dans int selon tes specs implicites, sinon erreur
             pass 
 
         pre, addr = asm_lhs(c.children[1])
         decls += _decls_for_var(addr, vartype)
         
-        # Cast implicite si assignation d'un float dans un int
         asm_exp = asm_expression(exp)
         if current_type == "float" and vartype == "int":
             asm_exp += "\nmovq xmm0, rax\ncvttsd2si rax, xmm0"
@@ -286,22 +287,12 @@ def asm_commande(c) -> tuple[str, str]:
         type_pr = expr_type(expr)
         
         if type_pr == "float":
-            return f"""{asm_expr}
-movq xmm0, rax
-mov rdi, format_float
-mov rax, 1  ; Indique à printf qu'on utilise 1 registre XMM
-call printf
-""", decls
+            return f"{asm_expr}\nmovq xmm0, rax\nmov rdi, format_float\nmov rax, 1\ncall printf\n", decls
         elif type_pr == "string": _format = "format_str"
         elif type_pr == "char": _format = "format_char"
         else: _format = "format_int"
         
-        return f"""{asm_expr}
-mov rdi, {_format}
-mov rsi, rax
-xor rax, rax
-call printf
-""", decls
+        return f"{asm_expr}\nmov rdi, {_format}\nmov rsi, rax\nxor rax, rax\ncall printf\n", decls
         
     if c.data == "sequence":
         d_cmd, d_decls = asm_commande(c.children[0])
@@ -322,7 +313,6 @@ def asm_main(ast):
         
     string_decls = "\n".join(f'{label}: db "{escape_nasm_string(value)}", 0' for value, label in string_literals.items())
     
-    # Injection dynamique du format float pour printf
     string_decls += '\nformat_float: db "%f", 10, 0'
     
     all_decls = "\n".join(part for part in (decls, decls_body, string_decls) if part)
@@ -344,3 +334,4 @@ if __name__ == "__main__":
     t = grammaire.parse(src)
     with open("resultat.asm", "w") as f:
         f.write(asm_main(t))
+
