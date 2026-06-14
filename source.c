@@ -25,13 +25,13 @@ main(int argc, char* argv) {
     bool hp4;
     hp4 = s1 == s;
     print(hp4);
-    int[] tableau = {1, 2, 3, 4, 5};
+    int[5] tableau = {1, 2, 3, 4, 5};
     tableau[2] = 13;
     x = tableau[2];
     print(x);
     int z = len(tableau);
     print(z);
-    int[][] tableau2 = {{1, 2}, {3, 4}, {5, 6}};
+    int[3][] tableau2 = {{1, 2, 0}, {3, 4}, {5, 6}};
     int[] extrait = tableau2[1];
     int size = len(tableau2[0]);
     print(size);

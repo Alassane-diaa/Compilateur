@@ -4,6 +4,7 @@ format_int: db "%lld",10, 0
 format_str: db "%s",10, 0
 format_char: db "%c",10, 0
 format_bounds: db "IndexError: array index out of bounds",10, 0
+format_size_mismatch: db "SizeError: array size mismatch",10, 0
 DECL_VARS
 global main
 section .text

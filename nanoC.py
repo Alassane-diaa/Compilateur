@@ -16,7 +16,7 @@ BOOL.2: "true" | "false"
 BASE_TYPE.2: "int" | "char" | "string" | "bool"
 BRACKET: "[]"
 OPBIN: /[+\\-*\\/<>%]/ | "==" | "<" | ">" | "<=" | ">="
-type_expr: BASE_TYPE BRACKET* -> type_expr
+type_expr: BASE_TYPE (BRACKET | "[" expression "]")* -> type_expr
 decl: type_expr IDENTIFIER -> declaration
 expression: IDENTIFIER -> variable 
           | SIGNED_NUMBER -> entier
@@ -48,13 +48,29 @@ op2asm = {"+": "add rax, rbx", "-": "sub rax, rbx",
           "<": "setl", ">": "setg", "<=": "setle", ">=": "setge", "==": "sete"}
 string_id_to_value = {}
 var_types = {}
+var_declared_size = {}
 
 
 def _type_str(type_node) -> str:
-    """Reconstruit la chaîne de type depuis un noeud type_expr, ex: 'int[][]'."""
+    """Reconstruit la chaîne de type depuis un noeud type_expr, ex: 'int[][]'.
+    Les tailles explicites (int[E]) comptent comme une dimension '[]' mais
+    leur expression E n'apparaît pas dans la signature de type."""
     base = type_node.children[0].value  # BASE_TYPE token
     brackets = "[]" * (len(type_node.children) - 1)
     return base + brackets
+
+
+def _type_sizes(type_node) -> list:
+    """Retourne la liste des tailles déclarées pour chaque dimension de
+    type_expr, dans l'ordre. Chaque élément est soit un noeud d'expression
+    (taille E donnée explicitement, ex: int[E]) soit None (ex: int[])."""
+    sizes = []
+    for child in type_node.children[1:]:
+        if hasattr(child, "data"):  # noeud d'expression -> taille explicite
+            sizes.append(child)
+        else:  # token BRACKET "[]" -> pas de taille
+            sizes.append(None)
+    return sizes
 
 
 def _eval_const_string(expr):
@@ -194,15 +210,33 @@ def _asm_build_tableau(elements: list) -> str:
     return "\n".join(lines)
 
 
-def _asm_assign_tableau(lhs_name: str, elements: list, vartype: str, decl=False) -> tuple[str, str]:
+def _asm_assign_tableau(lhs_name: str, elements: list, vartype: str, decl=False, size_expr=None) -> tuple[str, str]:
     """
     Génère le code pour assigner un tableau à lhs_name.
+    Si size_expr est fourni (taille déclarée pour la 1ère dimension, ex: int[E] t = {...}),
+    vérifie que len(elements) == E :
+      - si size_expr est une constante entière, vérification à la compilation
+      - sinon, vérification générée au runtime (sortie avec format_size_mismatch si différent)
     """
     decls = ""
     if decl:
         decls += _decls_for_var(lhs_name, vartype)
+
+    n = len(elements)
+    check_code = ""
+    if size_expr is not None:
+        if size_expr.data == "entier":
+            declared_n = int(size_expr.children[0].value)
+            if declared_n != n:
+                raise ValueError(
+                    f"Taille déclarée pour '{lhs_name}' ({declared_n}) "
+                    f"ne correspond pas au nombre d'éléments fournis ({n})"
+                )
+        else:
+            check_code = _asm_size_check(n, size_expr)
+
     code = _asm_build_tableau(elements)
-    return f"{code}\nmov [{lhs_name}], rax", decls
+    return f"{check_code}{code}\nmov [{lhs_name}], rax", decls
 
 
 def _asm_concat_strings(asm_left: str, asm_right: str) -> str:
@@ -251,6 +285,26 @@ syscall
 mov rdi, 1
 call exit
 {ok_label}: nop"""
+
+
+def _asm_size_check(n_literal: int, size_expr) -> str:
+    """Vérifie au runtime que size_expr == n_literal (nombre d'éléments du
+    littéral assigné). Si différent, affiche une erreur et quitte."""
+    global bounds_cpt
+    idx = bounds_cpt
+    bounds_cpt += 1
+    return f"""{asm_expression(size_expr)}
+cmp rax, {n_literal}
+je size_ok{idx}
+mov rax, 1
+mov rdi, 2
+lea rsi, [rel format_size_mismatch]
+mov rdx, 40
+syscall
+mov rdi, 1
+call exit
+size_ok{idx}: nop
+"""
 
 
 def asm_expression(e):
@@ -392,6 +446,24 @@ def asm_commande(c) -> tuple[str, str]:
         var_types[varname] = vartype
         string_id_to_value.pop(varname, None)
         decls += _decls_for_var(varname, vartype)
+
+        sizes = _type_sizes(c.children[0])
+        if sizes and sizes[0] is not None:
+            var_declared_size[varname] = sizes[0]
+            size_expr = sizes[0]
+            code = f"""{asm_expression(size_expr)}
+push rax
+inc rax
+imul rax, 8
+mov rdi, rax
+call malloc
+pop rcx
+mov qword [rax], rcx
+mov [{varname}], rax"""
+            return code, decls
+        else:
+            var_declared_size.pop(varname, None)
+        return "nop", decls
     if c.data == "assignation":
         lhs_node = c.children[0]
         exp      = c.children[1]
@@ -410,7 +482,8 @@ def asm_commande(c) -> tuple[str, str]:
         if exp.data == "tableau":
             lhs_name = _base_name(lhs_node)
             vartype = var_types.get(lhs_name, "int[]")
-            code, _ = _asm_assign_tableau(lhs_name, exp.children, vartype, decl=False)
+            size_expr = var_declared_size.get(lhs_name)
+            code, _ = _asm_assign_tableau(lhs_name, exp.children, vartype, decl=False, size_expr=size_expr)
             return code, decls
 
         pre, addr = asm_lhs(lhs_node)
@@ -435,7 +508,13 @@ def asm_commande(c) -> tuple[str, str]:
 
         if exp.data == "tableau":
             lhs_name = _base_name(lhs_node)
-            code, new_decls = _asm_assign_tableau(lhs_name, exp.children, vartype, decl=True)
+            sizes = _type_sizes(c.children[0])
+            size_expr = sizes[0] if sizes else None
+            if size_expr is not None:
+                var_declared_size[lhs_name] = size_expr
+            else:
+                var_declared_size.pop(lhs_name, None)
+            code, new_decls = _asm_assign_tableau(lhs_name, exp.children, vartype, decl=True, size_expr=size_expr)
             return code, new_decls
 
         pre, addr = asm_lhs(lhs_node)
