@@ -30,12 +30,14 @@ expression: IDENTIFIER -> variable
           | expression "[" expression "]" -> index
 lhs: IDENTIFIER -> variable
     | lhs "[" expression "]" -> index
+for_step: lhs "=" expression -> assignation
 commande: lhs "=" expression ";" -> assignation
         | type_expr IDENTIFIER ";"-> declaration
         | type_expr lhs "=" expression ";" -> declaration_assignation
         | "print" "(" expression ")" ";" -> print
         | "if" "(" expression ")" "{" commande "}" -> if
         | "while" "(" expression ")" "{" commande "}" -> while
+        | "for" "(" commande expression ";" for_step ")" "{" commande "}" -> for
         | (commande)* commande -> sequence
         | "pass" -> pass
 main: "main" "(" "int" "argc" "," "char*" "argv" ")" "{" commande "return" "(" expression ")" ";" "}"       
@@ -49,6 +51,7 @@ op2asm = {"+": "add rax, rbx", "-": "sub rax, rbx",
 string_id_to_value = {}
 var_types = {}
 var_declared_size = {}
+declared_vars: set[str] = set()
 
 
 def _type_str(type_node) -> str:
@@ -103,6 +106,9 @@ def _array_element_type(vartype: str) -> str:
 
 
 def _decls_for_var(varname: str, vartype: str) -> str:
+    if varname in declared_vars:
+        return ""
+    declared_vars.add(varname)
     return f"\n{varname} : dq 0"
 
 def collect_decl_var_types(vars_ast):
@@ -555,6 +561,27 @@ jmp loop{idx}
 end{idx}: nop
 """, decls + body_decls
 
+    elif c.data == "for":
+        init = c.children[0]
+        cond = c.children[1]
+        step = c.children[2]
+        body = c.children[3]
+        idx  = cpt
+        cpt += 1
+        init_cmd, init_decls = asm_commande(init)
+        body_cmd, body_decls = asm_commande(body)
+        step_cmd, step_decls = asm_commande(step)
+        return f"""{init_cmd}
+loop{idx}:
+{asm_expression(cond)}
+cmp rax, 0
+jz end{idx}
+{body_cmd}
+{step_cmd}
+jmp loop{idx}
+end{idx}: nop
+""", decls + init_decls + body_decls + step_decls
+
     elif c.data == "sequence":
         d    = c.children[0]
         tail = c.children[1]
@@ -613,6 +640,12 @@ def pp_commande(ast) -> str:
         cond = pp_expression(ast.children[0])
         cmd = pp_commande(ast.children[1])
         return f"{ast.data} ({cond}) then \n{cmd}"
+    elif ast.data == "for":
+        init = pp_commande(ast.children[0])
+        cond = pp_expression(ast.children[1])
+        step = pp_commande(ast.children[2])
+        body = pp_commande(ast.children[3])
+        return f"for ({init} {cond} ; {step}) then \n{body}"
     elif ast.data == "pass":
         return "pass"
     else: 
