@@ -135,12 +135,11 @@ def expr_type(expr) -> str:
             return binaire_type[e_op][key]
         return "int"
     if expr.data == "index":
-        base_name = _base_name(expr.children[0])
+        base = expr.children[0]
+        base_name = _base_name(base)
         if base_name and _is_argv_base(base_name):
             return "string"
-        if base_name and base_name in var_types:
-            return _array_element_type(var_types[base_name])
-        raise NameError(f"undeclared variable: {base_name}")
+        return _array_element_type(expr_type(base))
     return "int"
 
 def register_string_literal(token_value: str) -> str:
